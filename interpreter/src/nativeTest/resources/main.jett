@@ -1,0 +1,162 @@
+import core/io.{ File }
+
+
+
+fun main(args: List[String]): Unit = {
+  if args.isEmpty() {
+    println('Invalid arguments. Expected just one source file for now.')
+  } else {
+    val fileName = args.head()
+    val tokens = lex(fileName, File.fromPath(fileName).readText())
+    println("Tokens: ${tokens}")
+  }
+}
+
+private data StringCursor = { raw: String, index: Int, pos: Position }
+
+implement StringCursor {
+
+  fun isEmpty(): Boolean = raw.size < index
+  fun isNotEmpty(): Boolean = raw.size >= index
+  fun curr(): Char = raw.getCharAt(index)
+  fun prev(): Char = raw.getCharAt(index - 1)
+  fun peek(): Char = raw.getCharAt(index + 1)
+  fun skip(): StringCursor = if index == -1 then this{index = index + 1} else this{index = index + 1, pos = pos.increment(curr())}
+  fun next(): (StringCursor, Char) = {
+    val next = skip()
+    (next, next.curr())
+  }
+
+}
+
+data Position = { line: Int, col: Int, src: String }
+
+implement Position {
+  fun increment(next: Char): Position = if next == char'\n' then this.{line += 1, col = 0} else this.col += 1
+}
+
+data TokenWord = { value: String, pos: Position }
+data TokenSymbol = { value: String, pos: Position }
+data TokenString = { value: String, pos: Position }
+data TokenNumber = { value: String, pos: Position }
+
+type Token = TokenWord | TokenSymbol | TokenString | TokenNumber
+
+private val lowerCase = 'abcdefghijklmnopqrstuvwxyz'
+private val upperCase = lowerCase.toUpperCase()
+private val letters = lowerCase.append(upperCase)
+private val digitStart = '0123456789'
+private val digitContinue = digitStart.append('.')
+private val wordStart = letters
+private val wordContinue = letters.append(digitStart)
+private val quoteChars = "'\"`"
+private val whitespace = '\s\t\r\n'
+private val lineComment = '//'
+private val blockCommentStart = '/*'
+private val blockCommentEnd = '*/'
+private val singletonSymbols = '({[]})_,;' // these symbols are always alone. They can start but never continue
+private val mergedSymbols = '=<>!-+/*:.&|' // these symbols merge with one another to form compound symbols
+private val symbolStart = mergedSymbols.append(singletonSymbols)
+private val symbolEnd = mergedSymbols
+
+fun lex(src: String, raw: String): List[Token] = {
+  val src = StringCursor{ raw, index: -1, pos: Position{ line: 1, col: 1, src } }
+
+  muncher(src, List.of())
+}
+
+private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
+  if src.isEmpty() then return result
+
+  val (nextCursor, nextChar) = src.next()
+
+  match nextChar {
+    // checking for comments, both block and line
+    char'/' when if nextCursor.isNotEmpty() && '/*'.contains(nextCursor.peek()) => {
+      match nextCursor.peek() {
+        char'/' => return muncher(munchLineComment(nextCursor), result)
+        char'*' => return muncher(munchBlockComment(nextCursor), result)
+      }
+    }
+    // check for number. Do not bother with making sure there is at most one decimal point yet.
+    _ when digitStart.contains(nextChar) => {
+      val (finalCursor, value) = munchDigit(nextCursor, nextChar.toString())
+
+      return muncher(finalCursor, result.add(TokenWord {value, pos: nextCursor.pos })
+    }
+    // lex any words
+    _ when wordStart.contains(nextChar) => {
+      val (finalCursor, value) = munchWord(nextCursor, nextChar.toString())
+
+      return muncher(finalCursor, result.add(TokenNumber {value, pos: nextCursor.pos })
+    }
+    // lex strings of any quote type
+    _ when quoteChars.contains(nextChar) => {
+      val (finalCursor, value) = munchString(nextCursor, "", nextChar)
+
+      return muncher(finalCursor, result.add(TokenString{ value, pos: nextCursor.pos }
+    }
+    // lex symbols
+    _ when symbolStart.contains(nextChar) => {
+      val (finalCursor, value) = munchSymbol(nextCursor, nextChar.toString())
+
+      return muncher(finalCursor, result.add(TokenSymbol{ value, pos: nextCursor.pos }
+    }
+    // handle whitespace
+    _ when whitespace.contains(nextChar) => {
+      return muncher(nextCursor, result)
+    }
+    _ => throw Error{message: 'Unexpected character $nextChar'}
+  }
+}
+
+private fun munchDigit(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, digitContinue)
+
+private fun munchWord(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, wordContinue)
+
+private fun munchSymbol(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, symbolEnd)
+
+private fun munchContinuation(src: StringCursor, working: String, continuation: String): (StringCursor, String) = {
+  val (nextCursor, nextChar) = src.next()
+
+  if continuation.contains(nextChar) {
+    // tail recursion
+    munchContinuation(nextCursor, working.append(nextChar), continuation)
+  } else {
+    (src, working)
+  }
+}
+
+/**
+ * Munch the string, looking for the openType.
+ * Do NOT process escapes or interpolation but DO allow escaped chars to pass through.
+ */
+private fun munchString(src: StringCursor, working: String, openType: Char): (StringCursor, String) = {
+  val (nextCursor, nextChar) = src.next()
+
+  // there is one close quote, maybe we are at the end
+  match nextChar {
+    openType => (nextCursor, working)
+    char'\\' => { // something is escaped. Don't look at it, just pass both along no matter what.
+      val (final, escapedChar) = nextCursor.next()
+
+      munchString(final, working.append(nextChar).append(escapedChar), openType)
+    }
+    _ => munchString(nextCursor, working.append(nextChar), openType)
+  }
+}
+
+private fun munchLineComment(src: StringCursor): StringCursor = {
+  doUntil(src, { cur => cur.skip() } , { it => it.curr() == char'\n' })
+}
+
+private fun munchBlockComment(src: StringCursor): StringCursor = {
+  doUntil(src, { cur => cur.skip() } , { it => it.curr() == char'*' && it.isNotEmpty() && it.peek() == char'/' })
+}
+
+private fun doUntil[Item](init: Item, action: { Item -> Item }, test: { Item -> Boolean }): Item =
+  if test(init) then init else doUntil(action(init), action, test)
+
+
+
+
