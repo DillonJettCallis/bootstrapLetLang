@@ -1,0 +1,10 @@
+
+atom Get
+atom Set
+atom Remove
+
+type Message = (Get, String) | (Set, String, String) | (Remove, String)
+
+fun actorFunc(channel: Channel[Message], state: Map[String, String] = mapOf()) {
+
+}

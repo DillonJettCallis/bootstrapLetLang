@@ -1,9 +1,5 @@
-import core/io.{ File }
-
-
-
 fun main(args: List[String]): Unit = {
-  if args.isEmpty() {
+  if (args.isEmpty()) {
     println('Invalid arguments. Expected just one source file for now.')
   } else {
     val fileName = args.head()
@@ -12,35 +8,121 @@ fun main(args: List[String]): Unit = {
   }
 }
 
-private data StringCursor = { raw: String, index: Int, pos: Position }
+// org
 
-implement StringCursor {
+atom PublicAccess
+atom ProtectedAccess
+atom InternalAccess
+atom PrivateAccess
+
+
+// types
+
+atom BooleanType
+atom IntType
+atom CharType
+atom ListType
+atom MapType
+
+
+atom UnknownType
+
+
+  fun isEmpty(): Boolean = tokens.size < index
+  fun isNotEmpty(): Boolean = tokens.size >= index
+  fun curr(): Char = raw.get(index)
+  fun prev(): Char = raw.get(index - 1)
+  fun peek(): Char = raw.get(index + 1)
+  fun skip(): StringCursor = this{index: index + 1}
+  fun next(): (StringCursor, Char) = {
+    val next = skip()
+    (next, next.curr())
+  }
+
+
+fun parseModule(name: String, tokens: List[Token]): ModuleDeclare = {
+  val cursor = ParseCursor{tokens, index: -1}
+
+  val declarations = parseDeclarations(cursor, List.of(), null)
+    .keyBy({ dec => dec.name })
+
+  ModuleDeclare{name, declarations}
+}
+
+private fun parseDeclarations(cursor: ParseCursor, declarations: List[Declaration], access: AccessModifier): List[Declaration] = {
+  if (cursor.isEmpty) {
+    declarations
+  } else {
+    val (nextCursor, nextToken) = cursor.next()
+
+    if (nextToken is TokenWord) {
+      match (nextToken.value) {
+        'val' => declarations.add(ConstDeclare{access, assignment: parseAssignment(nextCursor)})
+
+        'private' => if (defaultAccess == null) parseDeclarations(nextCursor, declarations, PrivateAccess) else throw Error.new('use of multiple access modifier')
+        'protected' => if (defaultAccess == null) parseDeclarations(nextCursor, declarations, ProtectedAccess) else throw Error.new('use of multiple access modifier')
+        'internal' => if (defaultAccess == null) parseDeclarations(nextCursor, declarations, InternalAccess) else throw Error.new('use of multiple access modifier')
+        'public' => if (defaultAccess == null) parseDeclarations(nextCursor, declarations, PublicAccess) else throw Error.new('use of multiple access modifier')
+      }
+    } else {
+      throw Error.new('Syntax error: Expected word but found $next')
+    }
+  }
+}
+
+
+/**
+ * Assume 'val' has already been parsed
+ */
+private fun parseAssignment(cursor: ParseCursor): ValueDeclare = {
+  val pos = cursor.curr().pos
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken is TokenWord) {
+    val name = nameToken
+    val (equalsCursor, equalsToken) = nameCursor.next()
+
+    if (equalsToken is TokenSymbol && equalsToken.value == '=') {
+      val expression = parseExpression(equalsCursor)
+
+      return ValueDeclare{name, expression, pos}
+    } else {
+      equalsToken.pos.fail("Expected '=', found ${equalsToken.value}")
+    }
+
+  } else {
+    nameToken.pos.fail('Expected assignment identifier')
+  }
+}
+
+/**
+ * Assume 'fun' has already been parsed
+ */
+private fun parseFunction(cursor: ParseCursor): FunctionDeclare = {
+  val pos = cursor.curr().pos
+  val (maybeGenericsCursor, maybeGenericsToken) = cursor.next()
+
+  if (maybeGenericsToken is TokenSymbol && maybeGenericsToken.value == '[') {
+
+  }
+}
+
+// lexer
 
   fun isEmpty(): Boolean = raw.size < index
   fun isNotEmpty(): Boolean = raw.size >= index
   fun curr(): Char = raw.getCharAt(index)
   fun prev(): Char = raw.getCharAt(index - 1)
   fun peek(): Char = raw.getCharAt(index + 1)
-  fun skip(): StringCursor = if index == -1 then this{index = index + 1} else this{index = index + 1, pos = pos.increment(curr())}
+  fun skip(): StringCursor = if (index == -1) this{index: index + 1} else this{index: index + 1, pos: pos.increment(curr())}
   fun next(): (StringCursor, Char) = {
     val next = skip()
     (next, next.curr())
   }
 
-}
+  fun increment(next: Char): Position = if (next == char'\n') this{line: line + 1, col: 0} else this{col: col + 1}
+  fun fail(message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
 
-data Position = { line: Int, col: Int, src: String }
-
-implement Position {
-  fun increment(next: Char): Position = if next == char'\n' then this.{line += 1, col = 0} else this.col += 1
-}
-
-data TokenWord = { value: String, pos: Position }
-data TokenSymbol = { value: String, pos: Position }
-data TokenString = { value: String, pos: Position }
-data TokenNumber = { value: String, pos: Position }
-
-type Token = TokenWord | TokenSymbol | TokenString | TokenNumber
 
 private val lowerCase = 'abcdefghijklmnopqrstuvwxyz'
 private val upperCase = lowerCase.toUpperCase()
@@ -66,14 +148,14 @@ fun lex(src: String, raw: String): List[Token] = {
 }
 
 private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
-  if src.isEmpty() then return result
+  if (src.isEmpty()) return result
 
   val (nextCursor, nextChar) = src.next()
 
-  match nextChar {
+  match (nextChar) {
     // checking for comments, both block and line
-    char'/' when if nextCursor.isNotEmpty() && '/*'.contains(nextCursor.peek()) => {
-      match nextCursor.peek() {
+    char'/' when nextCursor.isNotEmpty() && '/*'.contains(nextCursor.peek()) => {
+      match (nextCursor.peek()) {
         char'/' => return muncher(munchLineComment(nextCursor), result)
         char'*' => return muncher(munchBlockComment(nextCursor), result)
       }
@@ -82,31 +164,31 @@ private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
     _ when digitStart.contains(nextChar) => {
       val (finalCursor, value) = munchDigit(nextCursor, nextChar.toString())
 
-      return muncher(finalCursor, result.add(TokenWord {value, pos: nextCursor.pos })
+      return muncher(finalCursor, result.add(TokenWord {value, pos: nextCursor.pos }))
     }
     // lex any words
     _ when wordStart.contains(nextChar) => {
       val (finalCursor, value) = munchWord(nextCursor, nextChar.toString())
 
-      return muncher(finalCursor, result.add(TokenNumber {value, pos: nextCursor.pos })
+      return muncher(finalCursor, result.add(TokenNumber {value, pos: nextCursor.pos }))
     }
     // lex strings of any quote type
     _ when quoteChars.contains(nextChar) => {
       val (finalCursor, value) = munchString(nextCursor, "", nextChar)
 
-      return muncher(finalCursor, result.add(TokenString{ value, pos: nextCursor.pos }
+      return muncher(finalCursor, result.add(TokenString{ value, pos: nextCursor.pos }))
     }
     // lex symbols
     _ when symbolStart.contains(nextChar) => {
       val (finalCursor, value) = munchSymbol(nextCursor, nextChar.toString())
 
-      return muncher(finalCursor, result.add(TokenSymbol{ value, pos: nextCursor.pos }
+      return muncher(finalCursor, result.add(TokenSymbol{ value, pos: nextCursor.pos }))
     }
     // handle whitespace
     _ when whitespace.contains(nextChar) => {
       return muncher(nextCursor, result)
     }
-    _ => throw Error{message: 'Unexpected character $nextChar'}
+    _ => throw Error.new('Unexpected character $nextChar')
   }
 }
 
@@ -119,7 +201,7 @@ private fun munchSymbol(src: StringCursor, working: String): (StringCursor, Stri
 private fun munchContinuation(src: StringCursor, working: String, continuation: String): (StringCursor, String) = {
   val (nextCursor, nextChar) = src.next()
 
-  if continuation.contains(nextChar) {
+  if (continuation.contains(nextChar)) {
     // tail recursion
     munchContinuation(nextCursor, working.append(nextChar), continuation)
   } else {
@@ -135,7 +217,7 @@ private fun munchString(src: StringCursor, working: String, openType: Char): (St
   val (nextCursor, nextChar) = src.next()
 
   // there is one close quote, maybe we are at the end
-  match nextChar {
+  match (nextChar) {
     openType => (nextCursor, working)
     char'\\' => { // something is escaped. Don't look at it, just pass both along no matter what.
       val (final, escapedChar) = nextCursor.next()
@@ -155,7 +237,7 @@ private fun munchBlockComment(src: StringCursor): StringCursor = {
 }
 
 private fun doUntil[Item](init: Item, action: { Item -> Item }, test: { Item -> Boolean }): Item =
-  if test(init) then init else doUntil(action(init), action, test)
+  if (test(init)) init else doUntil(action(init), action, test)
 
 
 
