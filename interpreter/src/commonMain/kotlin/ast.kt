@@ -50,7 +50,7 @@ data class ExpressionStatement(val ex: Expression, override val pos: Position): 
 data class AssignmentStatement(val name: String, val body: Expression, override val pos: Position): Statement()
 data class FunctionStatement(val name: String, val body: LambdaExp, override val pos: Position): Statement()
 data class TypeStatement(val name: String, val value: Type, override val pos: Position): Statement()
-data class ImportStatement(val packageName: String, val moduleName: String, override val pos: Position): Statement()
+data class ImportStatement(val packageName: String, val modulePath: List<String>, override val pos: Position): Statement()
 data class DeconstructDataStatement(val base: Expression, val values: List<Pair<String, String>>, override val pos: Position): Statement()
 data class DeconstructTupleStatement(val base: Expression, val names: List<String>, override val pos: Position): Statement()
 
@@ -61,5 +61,5 @@ data class FunctionDeclare(val func: FunctionStatement, override val access: Acc
 data class ImportDeclare(val import: ImportStatement, override val pos: Position): Declaration() { override val access = AccessModifier.Private }
 data class ConstantDeclare(val assign: AssignmentStatement, override val access: AccessModifier, override val pos: Position): Declaration()
 data class ProtocolDeclare(val name: String, val funcs: List<Pair<String, Type>>, override val access: AccessModifier, override val pos: Position): Declaration()
-data class ImplDeclare(val base: Type, val proto: Type?, val funcs: List<FunctionStatement>, override val access: AccessModifier, override val pos: Position): Declaration()
+data class ImplDeclare(val base: Type, val proto: Type?, val funcs: List<FunctionDeclare>, override val access: AccessModifier, override val pos: Position): Declaration()
 

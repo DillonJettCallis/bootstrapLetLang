@@ -55,11 +55,11 @@ private fun parseDeclaration(cursor: TokenCursor, access: AccessModifier): Pair<
       "val" -> parseConstDeclare(nextCursor, access, pos)
       "atom" -> parseAtomDeclare(nextCursor, access, pos)
       "fun" -> parseFunctionDeclare(nextCursor, access, pos)
-      "data" -> TODO()
-      "type" -> TODO()
-      "import" -> TODO()
+      "data" -> parseDataDeclare(nextCursor, access, pos)
+      "type" -> parseTypeDeclare(nextCursor, access, pos)
+      "import" -> parseImportDeclare(nextCursor, pos)
       "protocol" -> TODO()
-      "implement" -> TODO()
+      "implement" -> parseImplDeclare(nextCursor, access, pos)
       else -> pos.fail("Expected declaration but found `${curr.value}` ")
     }
   } else {
@@ -80,6 +80,200 @@ private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
     return finalCursor to AtomDeclare(token.value, access, pos)
   } else {
     token.pos.fail("Expected type")
+  }
+}
+
+private fun parseTypeDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, TypeDeclare> {
+  val (finalCursor, statement) = parseTypeStatement(cursor, pos)
+
+  return finalCursor to TypeDeclare(statement, access, pos)
+}
+
+private fun parseTypeStatement(cursor: TokenCursor, pos: Position): Pair<TokenCursor, TypeStatement> {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken !is TokenWord) {
+    nameToken.pos.fail("Expected name of type")
+  }
+
+  val name = nameToken.value
+
+  val (equalsCursor, equals) = nameCursor.next()
+
+  if (equals !is TokenSymbol || equals.value != "=") {
+    equals.pos.fail("Expected type assignment")
+  }
+
+  val (typeCursor, type) = parseType(equalsCursor)
+
+  return typeCursor to TypeStatement(name, type, pos)
+}
+
+private fun parseImportDeclare(cursor: TokenCursor, pos: Position): Pair<TokenCursor, ImportDeclare> {
+  val (finalCursor, statement) = parseImportStatement(cursor, pos)
+
+  return finalCursor to ImportDeclare(statement, pos)
+}
+
+private fun parseImportStatement(cursor: TokenCursor, pos: Position): Pair<TokenCursor, ImportStatement> {
+  val (packageCursor, packageToken) = cursor.next()
+
+  if (packageToken !is TokenWord) {
+    packageToken.pos.fail("Expected import package name")
+  }
+
+  val packageName = packageToken.value
+
+  val (slashCursor, slash) = packageCursor.next()
+
+  if (slash !is TokenSymbol || slash.value != "/") {
+    slash.pos.fail("Expected import package module delimiter '/'")
+  }
+
+  tailrec fun parseImportPath(cursor: TokenCursor, init: List<String> = emptyList()): Pair<TokenCursor, List<String>> {
+    val (nextCursor, nextToken) = cursor.next()
+
+    if (nextToken !is TokenWord) {
+      nextToken.pos.fail("Expected module path in import")
+    }
+
+    val result = init + nextToken.value
+
+    val maybeDot = nextCursor.curr()
+
+    return if (maybeDot is TokenSymbol && maybeDot.value == ".") {
+      parseImportPath(nextCursor.skip(), result)
+    } else {
+      nextCursor to result
+    }
+  }
+
+  val (finalCursor, path) = parseImportPath(slashCursor)
+
+  return finalCursor to ImportStatement(packageName, path, pos)
+}
+
+private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, DataDeclare> {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken !is TokenWord) {
+    nameToken.pos.fail("Expected name of data structure")
+  }
+
+  val name = nameToken.value
+
+  val (equalsCursor, equals) = nameCursor.next()
+
+  if (equals !is TokenSymbol || equals.value != "=") {
+    equals.pos.fail("Expected data declaration assignment")
+  }
+
+  val (openCursor, open) = equalsCursor.next()
+
+  if (open !is TokenSymbol || open.value != "{") {
+    equals.pos.fail("Expected data declaration open bracket")
+  }
+
+  val (finalCursor, fields) = parseDataField(openCursor)
+
+  return finalCursor to DataDeclare(name, fields, access, pos)
+}
+
+private tailrec fun parseDataField(cursor: TokenCursor, init: Map<String, Type> = emptyMap()): Pair<TokenCursor, Map<String, Type>> {
+  val (nameCursor, name) = cursor.next()
+
+  if (name !is TokenWord) {
+    name.pos.fail("Expected field name")
+  }
+
+  val (colonCursor, colon) = nameCursor.next()
+
+  if (colon !is TokenSymbol || colon.value != ":") {
+    colon.pos.fail("Expected data field type")
+  }
+
+  val (typeCursor, type) = parseType(colonCursor)
+
+  val result = init + (name.value to type)
+
+  val (endCursor, maybeEnd) = typeCursor.next()
+
+  if (maybeEnd !is TokenSymbol) {
+    maybeEnd.pos.fail("Expected end of data field declarations")
+  }
+
+  return when (maybeEnd.value) {
+    "," -> parseDataField(endCursor, result)
+    "}" -> endCursor to result
+    else -> maybeEnd.pos.fail("Expected end of data field declarations")
+  }
+}
+
+private fun parseImplDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, ImplDeclare> {
+  val (baseCursor, baseToken) = cursor.next()
+
+  if (baseToken !is TokenWord) {
+    baseToken.pos.fail("Expected base type for implementation")
+  }
+
+  val base = NamedType(baseToken.value)
+
+  val maybeFor = baseCursor.curr()
+
+  val (forCursor, forType) = if (maybeFor is TokenWord && maybeFor.value == "for") {
+    val (forCursor, forType) = baseCursor.skip().next()
+
+    if (forType !is TokenWord) {
+      forType.pos.fail("Expected for type of implementation")
+    }
+
+    forCursor to NamedType(forType.value)
+  } else {
+    baseCursor to null
+  }
+
+  val (openCursor, openBracket) = forCursor.next()
+
+  if (openBracket !is TokenSymbol || openBracket.value != "{") {
+    openBracket.pos.fail("Expected open bracket of implementation block")
+  }
+
+  val (finalCursor, funcs) = parseImplBody(openCursor)
+
+  return finalCursor to ImplDeclare(base, forType, funcs, access, pos)
+}
+
+private tailrec fun parseImplBody(cursor: TokenCursor, init: List<FunctionDeclare> = emptyList()): Pair<TokenCursor, List<FunctionDeclare>> {
+  val (nextCursor, maybeAccess) = cursor.next()
+
+  if (maybeAccess !is TokenWord) {
+    maybeAccess.pos.fail("Expected function declaration")
+  }
+
+  val (startCursor, access) = when (maybeAccess.value) {
+    "private" -> nextCursor to AccessModifier.Private
+    "internal" -> nextCursor to AccessModifier.Internal
+    "protected" -> nextCursor to AccessModifier.Protected
+    "public" -> nextCursor to AccessModifier.Public
+    "fun" -> cursor to AccessModifier.Internal
+    else -> maybeAccess.pos.fail("Expected function declaration")
+  }
+
+  val (funCursor, funToken) = startCursor.next()
+
+  if (funToken !is TokenWord || funToken.value != "fun") {
+    funToken.pos.fail("Expected function declaration")
+  }
+
+  val (finalCursor, func) = parseFunctionDeclare(funCursor, access, funToken.pos)
+  val result = init + func
+
+  val maybeEnd = finalCursor.curr()
+
+  return if (maybeEnd is TokenSymbol && maybeEnd.value == "}") {
+    finalCursor.skip() to result
+  } else {
+    parseImplBody(finalCursor, result)
   }
 }
 
@@ -324,23 +518,21 @@ private fun parseBinaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 }
 
 private fun parseBinaryExpSet(ops: Set<String>, next: (TokenCursor) -> Pair<TokenCursor, Expression>): (TokenCursor) -> Pair<TokenCursor, Expression> {
-  return { cursor: TokenCursor ->
+  fun rec(cursor: TokenCursor): Pair<TokenCursor, Expression> {
     val (leftCursor, left) = next(cursor)
 
-    tailrec fun rec(leftCursor: TokenCursor, left: Expression): Pair<TokenCursor, Expression> {
-      val maybeOp = leftCursor.curr()
+    val maybeOp = leftCursor.curr()
 
-      return if (maybeOp is TokenSymbol && maybeOp.value in ops) {
-        val (rightCursor, right) = next(leftCursor.skip())
+    return if (maybeOp is TokenSymbol && maybeOp.value in ops) {
+      val (rightCursor, right) = rec(leftCursor.skip())
 
-        rec(rightCursor, BinaryOpExp(maybeOp.value, left, right, UnknownType, maybeOp.pos))
-      } else {
-        leftCursor to left
-      }
+      rightCursor to BinaryOpExp(maybeOp.value, left, right, UnknownType, maybeOp.pos)
+    } else {
+      leftCursor to left
     }
-
-    rec(leftCursor, left)
   }
+
+  return ::rec
 }
 
 private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
@@ -725,8 +917,8 @@ private tailrec fun parseBlockStatement(cursor: TokenCursor, init: List<Statemen
     when (start.value) {
       "val" -> parseAssignmentStatement(cursor.skip(), start.pos)
       "fun" -> parseFunctionStatement(cursor.skip(), start.pos)
-      "type" -> TODO()
-      "import" -> TODO()
+      "type" -> parseTypeStatement(cursor.skip(), start.pos)
+      "import" -> parseImportStatement(cursor.skip(), start.pos)
       else -> {
         val (exCursor, ex) = parseExpression(cursor)
         exCursor to ExpressionStatement(ex, start.pos)
@@ -827,7 +1019,7 @@ private fun parseTypeUnion(cursor: TokenCursor): Pair<TokenCursor, Type> {
   val (maybeOrCursor, maybeOr) = leftCursor.next()
 
   return if (maybeOr is TokenSymbol && maybeOr.value == "|") {
-    val (rightCursor, right) = parseTypeIntersection(maybeOrCursor)
+    val (rightCursor, right) = parseTypeUnion(maybeOrCursor)
     rightCursor to UnionType.from(left, right)
   } else {
     leftCursor to left
@@ -839,7 +1031,7 @@ private fun parseTypeIntersection(cursor: TokenCursor): Pair<TokenCursor, Type> 
   val (maybeOrCursor, maybeOr) = leftCursor.next()
 
   return if (maybeOr is TokenSymbol && maybeOr.value == "&") {
-    val (rightCursor, right) = parseTypeFunction(maybeOrCursor)
+    val (rightCursor, right) = parseTypeIntersection(maybeOrCursor)
     rightCursor to IntersectionType.from(left, right)
   } else {
     leftCursor to left
