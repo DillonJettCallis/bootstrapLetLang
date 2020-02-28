@@ -23,6 +23,9 @@ sealed class Expression: AstFragment() {
   abstract val type: Type
 }
 
+
+data class AstPackage(val modules: Map<List<String>, AstModule>)
+
 data class AstModule(val declarations: List<Declaration>)
 
 data class MatchPattern(val base: Expression, val guard: Expression?, val body: Expression, val pos: Position)

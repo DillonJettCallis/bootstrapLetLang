@@ -48,7 +48,7 @@ private tailrec fun munchStringBody(cursor: StringCursor, initStrings: List<Stri
       wordCursor to IdentifierExp(word, UnknownType, nextCursor.pos)
     }
 
-    munchStringBody(finalCursor, initStrings, initValues + ex)
+    munchStringBody(finalCursor, initStrings + "", initValues + ex)
   } else {
     munchStringBody(nextCursor, initStrings.dropLast(1) + (initStrings.last() + maybeDollar), initValues)
   }

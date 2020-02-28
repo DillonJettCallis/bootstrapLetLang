@@ -1,8 +1,4 @@
-import core/io.File
 
-fun main(src: String, raw: String): List[Token] = lex(src, raw)
-
-// lexer
 private data StringCursor = { raw: String, index: Int, pos: Position }
 
 implement StringCursor {
@@ -36,7 +32,7 @@ type Token = TokenWord | TokenSymbol | TokenString | TokenNumber
 
 private val lowerCase = 'abcdefghijklmnopqrstuvwxyz'
 private val upperCase = lowerCase.toUpperCase()
-private val letters = lowerCase.append(upperCase)
+private val letters = "_$lowerCase$upperCase"
 private val digitStart = '0123456789'
 private val digitContinue = digitStart.append('.')
 private val wordStart = letters
@@ -46,7 +42,7 @@ private val whitespace = '\s\t\r\n'
 private val lineComment = '//'
 private val blockCommentStart = '/*'
 private val blockCommentEnd = '*/'
-private val singletonSymbols = '({[]})_,;' // these symbols are always alone. They can start but never continue
+private val singletonSymbols = '({[]}),;' // these symbols are always alone. They can start but never continue
 private val mergedSymbols = '=<>!-+/*:.&|' // these symbols merge with one another to form compound symbols
 private val symbolStart = mergedSymbols.append(singletonSymbols)
 private val symbolEnd = mergedSymbols
@@ -98,7 +94,7 @@ private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
     _ when whitespace.contains(nextChar) => {
       return muncher(nextCursor, result)
     }
-    _ => throw Error.new('Unexpected character $nextChar')
+    _ => src.pos.fail('Unexpected character $nextChar')
   }
 }
 

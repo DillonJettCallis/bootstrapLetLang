@@ -1,10 +1,10 @@
-private data class Scope(val values: MutableMap<String, JObject?>, val parent: Scope?) {
+private class Scope(val values: MutableMap<String, JValue>, val parent: Scope?) {
 
-  operator fun get(key: String): JObject? {
+  operator fun get(key: String): JValue {
     return this.values.getOrElse(key) { if (parent != null) parent[key] else throw Exception("No such value $key in scope") }
   }
 
-  operator fun set(key: String, value: JObject?) {
+  operator fun set(key: String, value: JValue) {
     this.values[key] = value
   }
 
@@ -14,15 +14,42 @@ private data class Scope(val values: MutableMap<String, JObject?>, val parent: S
 
 }
 
-private class ReturnException(val value: JObject?): RuntimeException()
+private class ReturnException(val value: JValue): RuntimeException()
 
-fun executeMain(module: AstModule, args: List<String>): Any? {
-  val moduleScope = initCoreScope().child()
+fun executePackage(pack: AstPackage, args: List<String>): Any? {
+  val core = initCoreScope()
+
+  pack.modules.forEach { (path, mod) ->
+    core[path.joinToString(".")] = buildScope(mod, core).wrap()
+  }
+
+  pack.modules.forEach { (path, mod) ->
+    val thisScope = core[path.joinToString(".")].unwrap<Scope>()
+
+    mod.declarations.filterIsInstance<ImportDeclare>().forEach {
+      val (packageName, modulePath) = it.import
+
+      // TODO: For now we assume only internal imports. All core libs are auto imported
+
+      val init = modulePath.dropLast(1).joinToString(".")
+      val value = modulePath.last()
+
+      thisScope[value] = core[init].unwrap<Scope>()[value]
+    }
+  }
+
+  val mainFun = core["App"].unwrap<Scope>()["main"] as JFunction
+
+  return executeMain(mainFun, args)
+}
+
+private fun buildScope(module: AstModule, core: Scope): Scope {
+  val moduleScope = core.child()
 
   module.declarations.forEach {
     when (it) {
-      is AtomDeclare -> moduleScope[it.name] = JAtom(it.name).makeJAtom()
-      is DataDeclare -> moduleScope[it.name] = JObject(mapOf())
+      is AtomDeclare -> moduleScope[it.name] = JAtom(it.name)
+      is DataDeclare -> moduleScope[it.name] = JClass(it.name, emptyMap(), emptyMap())
       is TypeDeclare -> {}
       is ImportDeclare -> {}
       is ConstantDeclare -> moduleScope[it.assign.name] = interpret(it.assign.body, moduleScope)
@@ -30,65 +57,79 @@ fun executeMain(module: AstModule, args: List<String>): Any? {
       is FunctionDeclare -> moduleScope[it.func.name] = it.func.body.makeJFunction(moduleScope)
       is ImplDeclare -> {
         val dataName = (it.base as NamedType).name
-        val dataObj = moduleScope[dataName]!!
-        val newFields = dataObj.fields + it.funcs.associate { fn -> fn.func.name to fn.func.body.makeJFunction(moduleScope) }
-        moduleScope[dataName] = JObject(newFields)
+        val dataObj = moduleScope[dataName] as JClass
+        val methods = dataObj.instanceMethods + it.funcs.associate { fn -> fn.func.name to fn.func.body.makeJFunction(moduleScope) }
+        moduleScope[dataName] = dataObj.copy(instanceMethods = methods)
       }
     }
   }
 
-  val mainFun = moduleScope["main"].unwrap<(List<JObject?>) -> JObject?>()
+  return moduleScope
+}
 
-  var tramp = Trampoline { mainFun(args.map { it.makeJString() }) }
+private fun executeMain(mainFun: JFunction, args: List<String>) {
+  var tramp = mainFun.trampoline( listOf(args.map { it.wrap() }.wrap()) )
 
   while (true) {
-    val result = tramp.func()
+    val result = tramp()
 
-    if (result.isTrampoline()) {
-      tramp = result.unwrap()
+    if (result is JTrampoline) {
+      tramp = result
     } else {
-      return result.unwrap<List<JObject>>().map {
-        val value = it.fields["value"] as JObject
-        value.unwrap<String>()
-      }.joinToString(" ")
+      return
     }
   }
 }
 
-private fun interpret(ex: Expression, scope: Scope): JObject? {
+private fun interpret(ex: Expression, scope: Scope): JValue {
   return when (ex) {
-    is NullLiteralExp -> null
-    is BooleanLiteralExp -> ex.value.makeJBoolean()
-    is NumberLiteralExp -> ex.value.toInt().makeJInt()
-    is StringLiteralExp -> ex.value.makeJString()
-    is CharLiteralExp -> ex.value.makeJChar()
-    is ListLiteralExp -> ex.args.map { interpret(it, scope) }.makeJList()
+    is NullLiteralExp -> JNull
+    is BooleanLiteralExp -> ex.value.wrap()
+    is NumberLiteralExp -> ex.value.toInt().wrap()
+    is StringLiteralExp -> ex.value.wrap()
+    is CharLiteralExp -> ex.value.wrap()
+    is ListLiteralExp -> ex.args.map { interpret(it, scope) }.wrap()
     is IdentifierExp -> scope[ex.name]
     is BinaryOpExp -> {
       val left = interpret(ex.left, scope)
 
       if (ex.op == ".") {
         val key = (ex.right as IdentifierExp).name
-        val maybe = left!!.fields[key]
 
-        return maybe.makeJObject()
+        if (left is JObject) {
+          when {
+            left.fields.containsKey(key) -> return left.fields.getValue(key).wrap()
+            left.jClass.instanceMethods.containsKey(key) -> return left.jClass.instanceMethods.getValue(key)
+            else -> ex.pos.fail("Attempt to access property '$key' that does not exist on object '$left'")
+          }
+        }
+
+        if (left is JClass) {
+          if (left.staticMethods.containsKey(key)) {
+            return left.staticMethods.getValue(key)
+          } else {
+            ex.pos.fail("Attempt to access static that does not exist")
+          }
+        }
+
+        ex.pos.fail("Attempt to access when value was not an object or a class")
       }
 
       val right = interpret(ex.right, scope)
 
       when (ex.op) {
-        "+" -> (left.unwrap<Int>() + right.unwrap<Int>()).makeJInt()
-        "-" -> (left.unwrap<Int>() - right.unwrap<Int>()).makeJInt()
-        "*" -> (left.unwrap<Int>() * right.unwrap<Int>()).makeJInt()
-        "/" -> (left.unwrap<Int>() / right.unwrap<Int>()).makeJInt()
-        ">" -> (left.unwrap<Int>() > right.unwrap<Int>()).makeJBoolean()
-        ">=" -> (left.unwrap<Int>() >= right.unwrap<Int>()).makeJBoolean()
-        "<" -> (left.unwrap<Int>() < right.unwrap<Int>()).makeJBoolean()
-        "<=" -> (left.unwrap<Int>() <= right.unwrap<Int>()).makeJBoolean()
-        "==" -> (left?.fields?.get("src") == right?.fields?.get("src")).makeJBoolean()
-        "!=" -> (left?.fields?.get("src") != right?.fields?.get("src")).makeJBoolean()
-        "&&" -> (left.unwrap<Boolean>() && right.unwrap<Boolean>()).makeJBoolean()
-        "||" -> (left.unwrap<Boolean>() && right.unwrap<Boolean>()).makeJBoolean()
+        "+" -> (left.unwrap<Int>() + right.unwrap<Int>()).wrap()
+        "-" -> (left.unwrap<Int>() - right.unwrap<Int>()).wrap()
+        "*" -> (left.unwrap<Int>() * right.unwrap<Int>()).wrap()
+        "/" -> (left.unwrap<Int>() / right.unwrap<Int>()).wrap()
+        ">" -> (left.unwrap<Int>() > right.unwrap<Int>()).wrap()
+        ">=" -> (left.unwrap<Int>() >= right.unwrap<Int>()).wrap()
+        "<" -> (left.unwrap<Int>() < right.unwrap<Int>()).wrap()
+        "<=" -> (left.unwrap<Int>() <= right.unwrap<Int>()).wrap()
+        "==" -> (left == right).wrap()
+        "!=" -> (left != right).wrap()
+        "&&" -> (left.unwrap<Boolean>() && right.unwrap<Boolean>()).wrap()
+        "||" -> (left.unwrap<Boolean>() && right.unwrap<Boolean>()).wrap()
         else -> throw Exception("Invalid operator ${ex.op}")
       }
     }
@@ -96,21 +137,21 @@ private fun interpret(ex: Expression, scope: Scope): JObject? {
       val body = interpret(ex.ex, scope)
 
       when (ex.op) {
-        "-" -> (-body.unwrap<Int>()).makeJInt()
-        "!" -> (!body.unwrap<Boolean>()).makeJBoolean()
+        "-" -> (-body.unwrap<Int>()).wrap()
+        "!" -> (!body.unwrap<Boolean>()).wrap()
         else -> throw Exception("Invalid operator ${ex.op}")
       }
     }
     is CallExp -> {
       val call = callCheck(ex)
 
-      val func = interpret(call.func, scope).unwrap<(List<JObject?>) -> JObject?>()
+      val func = interpret(call.func, scope) as JFunction
       val args = call.arguments.map { interpret(it, scope) }
 
       val result = func(args)
 
-      if (result.isTrampoline()) {
-        result.unwrap<Trampoline>().func()
+      if (result is JTrampoline) {
+        result()
       } else {
         result
       }
@@ -123,7 +164,7 @@ private fun interpret(ex: Expression, scope: Scope): JObject? {
         interpret(ex.thenExp, scope)
       } else {
         if (ex.elseExp == null) {
-          null
+          JNull
         } else {
           interpret(ex.elseExp, scope)
         }
@@ -135,10 +176,10 @@ private fun interpret(ex: Expression, scope: Scope): JObject? {
       if (body is CallExp) {
         val call = callCheck(body)
 
-        val func = interpret(call.func, scope).unwrap<(List<JObject?>) -> JObject?>()
+        val func = interpret(call.func, scope) as JFunction
         val args = call.arguments.map { interpret(it, scope) }
 
-        throw ReturnException( Trampoline { func(args) }.makeJTrampoline() )
+        throw ReturnException(func.trampoline(args))
       }
 
       throw ReturnException(interpret(ex.ex, scope))
@@ -146,17 +187,25 @@ private fun interpret(ex: Expression, scope: Scope): JObject? {
     is ThrowExp -> throw interpret(ex.ex, scope).unwrap<Throwable>()
     is ConstructExp -> {
       val base = interpret(ex.base, scope)
+      val fields = ex.values.associate { (key, body) -> key to interpret(body, scope) }
 
-      val values = ex.values.associate { (key, body) -> key to interpret(body, scope) }
+      if (base is JClass) {
+        return JObject(fields, base)
+      }
 
-      JObject(base!!.fields + values)
+      if (base is JObject) {
+        return JObject(base.fields + fields, base.jClass)
+      }
+
+      ex.base.pos.fail("Construct on something that was neither a class nor an object")
     }
-    is ConstructTupleExp -> ex.values.map { interpret(it, scope) }.makeJList()
+    is ConstructTupleExp -> ex.values.map { interpret(it, scope) }.wrap()
     is MatchExp -> {
       val base = interpret(ex.base, scope).unwrap<Any?>()
 
       ex.patterns.forEach { pattern ->
-        val patternBase = interpret(pattern.base, scope).unwrap<Any?>()
+        val raw = interpret(pattern.base, scope)
+        val patternBase = raw.unwrap<Any?>()
 
         if (patternBase == Wildcard || patternBase == base) {
           if (pattern.guard == null) {
@@ -173,37 +222,37 @@ private fun interpret(ex: Expression, scope: Scope): JObject? {
     }
     is BlockExp -> {
       val local = scope.child()
-      var result: JObject? = null
+      var result: JValue = JNull
 
       ex.body.forEach { state ->
         result = when (state) {
           is ExpressionStatement -> interpret(state.ex, local)
           is AssignmentStatement -> {
             local[state.name] = interpret(state.body, local)
-            null
+            JNull
           }
           is FunctionStatement -> {
             local[state.name] = state.body.makeJFunction(local)
-            null
+            JNull
           }
-          is TypeStatement, is ImportStatement -> null
+          is TypeStatement, is ImportStatement -> JNull
           is DeconstructDataStatement -> {
-            val values = interpret(state.base, local)
+            val values = interpret(state.base, local) as JObject
 
             state.values.forEach { (inside, outside) ->
-              local[inside] = values?.fields?.get(outside).makeJObject()
+              local[inside] = values.fields.getValue(outside).wrap()
             }
 
-            null
+            JNull
           }
           is DeconstructTupleStatement -> {
-            val values = interpret(state.base, local).unwrap<List<JObject?>>()
+            val values = interpret(state.base, local).unwrap<List<JValue>>()
 
             state.names.zip(values).forEach { (name, value) ->
               local[name] = value
             }
 
-            null
+            JNull
           }
         }
       }
@@ -223,136 +272,241 @@ private fun callCheck(call: CallExp): CallExp {
   }
 }
 
-private object Wildcard
+sealed class JValue
 
-private data class JAtom(val name: String)
-private data class Trampoline(val func: () -> JObject?)
-
-data class JObject(val fields: Map<String, Any?>)
-
-private inline fun <reified T> JObject?.unwrap(): T {
-  return this!!.fields["src"] as T
+object JNull: JValue() { override fun toString() = "null" }
+object Wildcard: JValue() { override fun toString() = "_" }
+data class JAtom(val name: String): JValue() { override fun toString() = name }
+data class JTrampoline(val func: () -> JValue): JValue() {
+  override fun toString() = "<Function>"
+  operator fun invoke(): JValue = func()
+}
+data class JClass(val name: String, val instanceMethods: Map<String, JFunction>, val staticMethods: Map<String, JFunction>): JValue() {
+  override fun toString() = name
+}
+data class JObject(val fields: Map<String, Any?>, val jClass: JClass): JValue() {
+  override fun toString(): String {
+    return if (jClass.instanceMethods.containsKey("toString")) {
+      (jClass.instanceMethods["toString"] as JFunction)(listOf(this)).unwrap()
+    } else {
+      fields.entries.joinToString(prefix = "${jClass.name} {", postfix = "}") { "${it.key}: ${it.value}" }
+    }
+  }
+}
+data class JFunction(val func: (List<JValue>) -> JValue): JValue() {
+  override fun toString() = "<Function>"
+  operator fun invoke(args: List<JValue>): JValue = func(args)
+  fun trampoline(args: List<JValue>) = JTrampoline { func(args) }
 }
 
-private fun func(src: (List<JObject?>) -> JObject?) = src
 
-private fun Any?.makeJObject(): JObject? {
+private inline fun <reified T> JValue.unwrap(): T {
   return when (this) {
-    null -> null
-    is JObject -> this
-    else -> JObject(mapOf("src" to this))
+    is JObject -> fields["@src"] as T
+    is JNull -> null as T
+    is Wildcard -> Wildcard as T
+    else -> throw RuntimeException("Invalid cast")
   }
 }
 
-private val jError = JObject(mapOf(
-  "new" to func { Exception( it[1].unwrap<String>()).makeJError() }
-))
+private val jAnyClass = JClass("Any", emptyMap(), emptyMap())
 
-private fun String.makeJString(): JObject {
-  return JObject(mapOf(
-    "src" to this,
-    "size" to this.length,
-    "getCharAt" to func {
+private fun Any?.wrap(): JValue {
+  return if (this == null) {
+    JNull
+  } else {
+    val clazz = when (this) {
+      is JObject -> return this
+      is String -> {
+        return JObject(mapOf("@src" to this, "size" to this.length), jString)
+      }
+      is Char -> jChar
+      is Exception -> jError
+      is List<*> -> jList
+      is Map<*, *> -> jMap
+      is FileImpl -> jFile
+      else -> jAnyClass
+    }
+
+    JObject(mapOf("@src" to this), clazz)
+  }
+}
+
+private val jError = JClass("Error", emptyMap(), mapOf("new" to JFunction { Exception( it[1].unwrap<String>()).wrap() }))
+
+private val jString = JClass("String", mapOf(
+    "getCharAt" to JFunction {
       val (str, index) = it
-      str.unwrap<String>()[index.unwrap<Int>()].makeJChar()
+      str.unwrap<String>()[index.unwrap<Int>()].wrap()
     },
-    "toUpperCase" to func {
-      it[0].unwrap<String>().toUpperCase().makeJString()
+    "toUpperCase" to JFunction {
+      it[0].unwrap<String>().toUpperCase().wrap()
     },
-    "append" to func {
+    "append" to JFunction {
       val (left, right) = it
-      (left.unwrap<String>() + right.unwrap<Any?>().toString()).makeJString()
+      (left.unwrap<String>() + right.unwrap<Any?>().toString()).wrap()
     },
-    "contains" to func {
+    "contains" to JFunction {
       val (rawStr, rawChar) = it
 
-      rawStr.unwrap<String>().contains(rawChar.unwrap<Char>()).makeJBoolean()
-    }
-  ))
-}
+      rawStr.unwrap<String>().contains(rawChar.unwrap<Char>()).wrap()
+    },
+  "toString" to JFunction { it[0] }
+  ), mapOf()
+)
 
-private fun Exception.makeJError(): JObject {
-  return JObject(mapOf(
-    "src" to this
-  ))
-}
+private val jChar = JClass(
+  name = "Char",
+  instanceMethods = mapOf(
+    "toString" to JFunction { it[0].unwrap<Char>().toString().wrap() }
+  ),
+  staticMethods = mapOf()
+)
 
-private fun Char.makeJChar(): JObject {
-  return JObject(mapOf(
-    "src" to this,
-    "toString" to func {
-      it[0].unwrap<Char>().toString().makeJString()
-    }
-  ))
-}
-
-private fun Boolean.makeJBoolean(): JObject {
-  return JObject(mapOf("src" to this))
-}
-
-private fun Int.makeJInt(): JObject {
-  return JObject(mapOf("src" to this))
-}
-
-private val jList = JObject(mapOf(
-  "of" to func { emptyList<JObject>().makeJList() }
-))
-
-private fun List<JObject?>.makeJList(): JObject {
-  return JObject(mapOf(
-    "src" to this,
-    "add" to func {
+private val jList = JClass(
+  name = "List",
+  staticMethods =  mapOf(
+    "of" to JFunction { emptyList<JValue>().wrap() }
+  ),
+  instanceMethods = mapOf(
+    "add" to JFunction {
       val (rawList, rawNew) = it
-      val list = rawList.unwrap<List<JObject?>>()
-      (list + rawNew).makeJList()
+      val list = rawList.unwrap<List<JValue>>()
+      (list + rawNew).wrap()
+    },
+    "get" to JFunction {
+      val (rawList, rawIndex) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val index = rawIndex.unwrap<Int>()
+      list[index]
+    },
+    "filter" to JFunction {
+      val (rawList, rawFunc) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      list.filter { item ->
+        func(listOf(item)).unwrap<Boolean>()
+      }.wrap()
+    },
+    "map" to JFunction {
+      val (rawList, rawFunc) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      list.map { item ->
+        func(listOf(item))
+      }.wrap()
+    },
+    "fold" to JFunction {
+      val (rawList, rawInit, rawFunc) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      list.fold(rawInit) { sum, next -> func(listOf(sum, next)) }
+    },
+    "forEach" to JFunction {
+      val (rawList, rawFunc) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      list.forEach { item ->
+        func(listOf(item))
+      }
+
+      JNull
     }
-  ))
-}
+  )
+)
 
-private fun Trampoline.makeJTrampoline(): JObject {
-  return JObject(mapOf("src" to this, "@trampoline" to true))
-}
+private val jMap = JClass(
+  name = "Map",
+  instanceMethods = mapOf(
+    "of" to JFunction { emptyMap<JValue, JValue>().wrap() }
+  ),
+  staticMethods = mapOf(
+    "set" to JFunction { args ->
+      val (rawMap, rawKey, rawValue) = args
+      val map = rawMap.unwrap<Map<JValue, JValue>>()
+      (map + (rawKey to rawValue)).wrap()
+    },
+    "get" to JFunction { args ->
+      val (rawMap, rawKey) = args
+      val map = rawMap.unwrap<Map<JValue, JValue>>()
+      map[rawKey] ?: JNull
+    }
+  )
+)
 
-fun JObject?.isTrampoline(): Boolean = this?.fields?.containsKey("@trampoline") ?: false
+private val jFile = JClass(
+  name = "File",
+  staticMethods = mapOf(
+    "from" to JFunction {
+      val path = it[1].unwrap<String>()
+      FileImpl(path).wrap()
+    }
+  ),
+  instanceMethods = mapOf(
+    "walkFiles" to JFunction { args -> args[0].unwrap<FileImpl>().walkFiles().map { it.wrap() }.wrap() },
+    "readText" to JFunction { it[0].unwrap<FileImpl>().readText().wrap() },
+    "path" to JFunction { it[0].unwrap<FileImpl>().path.wrap() },
+    "extension" to JFunction { it[0].unwrap<FileImpl>().extension().wrap() }
+  )
+)
 
-private fun LambdaExp.makeJFunction(context: Scope): JObject {
-  val execute = { args: List<JObject?> ->
+private fun LambdaExp.makeJFunction(context: Scope): JFunction {
+  return JFunction { args: List<JValue> ->
     val local = context.child()
 
     this.args.zip(args).forEach { (key, value) ->
       local[key] = value
     }
 
-    try {
+    var result: JValue = try {
       interpret(this.body, local)
     } catch (e: ReturnException) {
       e.value
     }
+
+    while (result is JTrampoline) {
+      result = result()
+    }
+
+    result
+  }
+}
+
+val templateFun = JFunction { args ->
+  val (rawStrings, rawValues) = args
+
+  val strings = rawStrings.unwrap<List<JValue>>().map { it.unwrap<String>() }
+  val values = rawValues.unwrap<List<JValue>>().map { it.toString() }
+
+  val result = StringBuilder()
+
+  for (i in values.indices) {
+    result.append(strings[i])
+    result.append(values[i])
   }
 
-  return JObject(mapOf("src" to execute))
+  result.append(strings.last())
+
+  result.toString().wrap()
 }
 
-private fun JAtom.makeJAtom(): JObject {
-  return JObject(mapOf("src" to this))
+val jPrintln = JFunction { args ->
+  println(args.joinToString(" "){ it.toString() })
+  JNull
 }
-
-val templateFun = func {
-  val (rawStrings, rawValues) = it
-
-  val strings = rawStrings.unwrap<List<JObject?>>().map { it.unwrap<String>() }
-  val values = rawValues.unwrap<List<JObject?>>().map { it.unwrap<Any?>().toString() }
-
-  val result = strings.zip(values).flatMap { it.toList() }.joinToString("") + strings.last()
-
-  result.makeJString()
-}.makeJObject()
 
 private fun initCoreScope(): Scope {
   return Scope(hashMapOf(
-    "_" to Wildcard.makeJObject(),
+    "_" to Wildcard,
     "Error" to jError,
     "List" to jList,
+    "Map" to jMap,
+    "File" to jFile,
+    "println" to jPrintln,
     "@template" to templateFun
   ), null)
 }

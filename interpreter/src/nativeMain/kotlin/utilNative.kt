@@ -1,34 +1,79 @@
-import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.toKString
+import kotlinx.cinterop.*
 import platform.posix.*
 
-actual fun readFile(path: String): String {
-  require(access(path, F_OK) != -1) { "File $path not found!" }
-  val file = fopen(path, "r")
 
-  try {
-    memScoped {
-      val builder = StringBuilder()
+actual class FileImpl actual constructor(actual val path: String) {
 
-      val bufferSize = 64 * 1024
-      val buffer = allocArray<ByteVar>(bufferSize)
+  actual fun extension(): String {
+    return path.split("/".toRegex()).last().split(".".toRegex()).last()
+  }
 
-      while (true) {
-        // reads one line at a time. Newline is kept in nextLine
-        val nextLine = fgets(buffer, bufferSize, file)?.toKString()
+  actual fun walkFiles(): List<FileImpl> {
+    fun listContents(path: String): List<String> {
+      val result = mutableListOf<String>()
+      val dir = opendir(path)
 
-        if (nextLine.isNullOrEmpty()) {
-          break
+      if (dir != null) {
+        try {
+          var line = readdir(dir)
+
+          while (line != null) {
+            result += line.pointed.d_name.toKString()
+            line = readdir(dir)
+          }
+        } finally {
+          closedir(dir)
         }
-
-        builder.append(nextLine)
       }
 
-      return builder.toString()
+      return result
     }
-  } finally {
-    fclose(file)
+
+    fun walk(path: String): List<String> {
+      val contents = listContents(path)
+
+      return if (contents.isEmpty()) {
+        listOf(path)
+      } else {
+        contents.flatMap(::walk)
+      }
+    }
+
+    return walk(path).map { FileImpl(it) }
   }
+
+  actual fun readText(): String {
+    require(access(path, F_OK) != -1) { "File $path not found!" }
+    val file = fopen(path, "r")
+
+    try {
+      memScoped {
+        val builder = StringBuilder()
+
+        val bufferSize = 64 * 1024
+        val buffer = allocArray<ByteVar>(bufferSize)
+
+        while (true) {
+          // reads one line at a time. Newline is kept in nextLine
+          val nextLine = fgets(buffer, bufferSize, file)?.toKString()
+
+          if (nextLine.isNullOrEmpty()) {
+            break
+          }
+
+          builder.append(nextLine)
+        }
+
+        return builder.toString()
+      }
+    } finally {
+      fclose(file)
+    }
+  }
+
+
 }
+
+
+
+

@@ -1,0 +1,14 @@
+import this/Lexer.lex
+
+fun main(args: List[String]): List[List[Token]] = {
+  val srcDir = File.from(args.get(0))
+  val files = srcDir.walkFiles()
+  val srcFiles = files.filter({ file => file.extension() == 'jett' })
+
+  val lexedFiles = srcFiles.map({ next =>
+    val raw = next.readText()
+    lex(next.path(), raw)
+  })
+
+  lexedFiles.forEach({ tokens => println("Tokens: $tokens") })
+}
