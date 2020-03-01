@@ -534,6 +534,11 @@ private val jMap = JClass(
       val (rawMap, rawKey) = args
       val map = rawMap.unwrap<Map<JValue, JValue>>()
       map[rawKey] ?: JNull
+    },
+    "contains" to JFunction { args ->
+      val (rawMap, rawKey) = args
+      val map = rawMap.unwrap<Map<JValue, JValue>>()
+      map.containsKey(rawKey).wrap()
     }
   )
 )

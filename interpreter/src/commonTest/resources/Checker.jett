@@ -1,0 +1,102 @@
+import this/Lexer.Position
+
+import this/Ast.AccessModifier
+import this/Ast.Public
+import this/Ast.Protected
+import this/Ast.Internal
+import this/Ast.Private
+
+import this/Ast.NullLiteralExp
+import this/Ast.BooleanLiteralExp
+import this/Ast.NumberLiteralExp
+import this/Ast.StringLiteralExp
+import this/Ast.ListLiteralExp
+import this/Ast.CharLiteralExp
+import this/Ast.IdentifierExp
+import this/Ast.BinaryOpExp
+import this/Ast.UnaryOpExp
+import this/Ast.BlockExp
+import this/Ast.CallExp
+import this/Ast.LambdaExp
+import this/Ast.IfExp
+import this/Ast.ReturnExp
+import this/Ast.ThrowExp
+import this/Ast.ConstructExp
+import this/Ast.ConstructTupleExp
+import this/Ast.MatchExp
+import this/Ast.Expression
+import this/Ast.Statement
+import this/Ast.ExpressionStatement
+import this/Ast.AssignmentStatement
+import this/Ast.FunctionStatement
+import this/Ast.TypeStatement
+import this/Ast.ImportStatement
+import this/Ast.DeconstructDataStatement
+import this/Ast.DeconstructTupleStatement
+import this/Ast.DebuggerStatement
+import this/Ast.Declaration
+import this/Ast.AtomDeclare
+import this/Ast.DataDeclare
+import this/Ast.TypeDeclare
+import this/Ast.FunctionDeclare
+import this/Ast.ImportDeclare
+import this/Ast.ConstantDeclare
+import this/Ast.ProtocolDeclare
+import this/Ast.ImplDeclare
+import this/Ast.MatchPattern
+import this/Ast.AstModule
+import this/Ast.AstPackage
+
+import this/Type.PrimitiveType
+import this/Type.AtomType
+import this/Type.DataType
+import this/Type.ProtocolType
+import this/Type.FunctionType
+import this/Type.TupleType
+import this/Type.GenericType
+import this/Type.UnknownType
+import this/Type.NamedType
+import this/Type.PlaceholderType
+import this/Type.UnionType
+import this/Type.IntersectionType
+import this/Type.CharType
+import this/Type.StringType
+import this/Type.IntType
+import this/Type.FloatType
+import this/Type.BooleanType
+import this/Type.AnyType
+import this/Type.NullType
+import this/Type.UnitType
+import this/Type.NothingType
+import this/Type.ListType
+import this/Type.MapType
+import this/Type.Type
+
+data Scope = { values: Map[String, Type], parent: Scope }
+
+implement Scope {
+
+  fun get(name: String, pos: Position): Type = {
+    if (this.values.contains(name)) {
+      return this.values.get(name)
+    } else {
+      if (this.parent != null) {
+        return this.parent.get(name, pos)
+      } else {
+        pos.fail("Unknown type $name is not in scope")
+      }
+    }
+  }
+
+  fun set(name: String, type: Type): Unit = this.values.set(name, type)
+}
+
+
+fun checkPackage(pack: AstPackage): AstPackage = {
+  null
+}
+
+private fun initModule(module: AstModule): Scope = {
+  null
+}
+

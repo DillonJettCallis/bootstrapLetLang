@@ -1,15 +1,15 @@
 
-private val escapes = Map.of(
-  (char"\\", char"\\"),
-  (char't', char'\t'),
-  (char'r', char'\r'),
-  (char'n', char'\n'),
-  (char's', char' '),
-  (char'\$', char'\$'),
-  (char "'", char"'"),
-  (char '"', char'"'),
-  (char '`', char'`')
-)
+private val escapes = Map.of()
+  .set(char"\\", char"\\")
+  .set(char't', char'\t')
+  .set(char'r', char'\r')
+  .set(char'n', char'\n')
+  .set(char's', char' ')
+  .set(char'\$', char'\$')
+  .set(char "'", char"'")
+  .set(char '"', char'"')
+  .set(char '`', char'`')
+
 
 data StringCursor = { raw: String, index: Int, pos: Position }
 

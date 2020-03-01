@@ -504,66 +504,7 @@ private tailrec fun parseFunctionParameters(cursor: TokenCursor, init: List<Pair
 
 
 private fun parseExpression(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  return parseBinaryExp(cursor)
-}
-
-private fun parseBinaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val start = ::parseIsExp
-  val access = parseBinaryExpSet(setOf("."), start)
-  val prod = parseBinaryExpSet(setOf("*", "/"), access)
-  val sum = parseBinaryExpSet(setOf("+", "-"), prod)
-  val compare = parseBinaryExpSet(setOf(">", ">=", "<", "<="), sum)
-  val equal = parseBinaryExpSet(setOf("==", "!="), compare)
-  val and = parseBinaryExpSet(setOf("&&"), equal)
-  val or = parseBinaryExpSet(setOf("||"), and)
-  return or(cursor)
-}
-
-private fun parseBinaryExpSet(ops: Set<String>, next: (TokenCursor) -> Pair<TokenCursor, Expression>): (TokenCursor) -> Pair<TokenCursor, Expression> {
-  tailrec fun rec(cursor: TokenCursor, left: Expression): Pair<TokenCursor, Expression> {
-    val maybeOp = cursor.curr()
-
-    return if (maybeOp is TokenSymbol && maybeOp.value in ops) {
-      val (rightCursor, right) = next(cursor.skip())
-
-      rec(rightCursor, BinaryOpExp(maybeOp.value, left, right, UnknownType, maybeOp.pos))
-    } else {
-      cursor to left
-    }
-  }
-
-  return {
-    val (leftCursor, left) = next(it)
-
-    rec(leftCursor, left)
-  }
-}
-
-private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val (leftCursor, left) = parseUnaryExp(cursor)
-
-  val maybeIs = leftCursor.curr()
-
-  return if (maybeIs is TokenWord && maybeIs.value in setOf("is", "isNot")) {
-    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
-
-    rightCursor to BinaryOpExp(maybeIs.value, left, right, UnknownType, maybeIs.pos)
-  } else {
-    leftCursor to left
-  }
-
-}
-
-private fun parseUnaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val maybeOp = cursor.curr()
-
-  return if (maybeOp is TokenSymbol && maybeOp.value in setOf("-", "!")) {
-    val (bodyCursor, body) = parseExpression(cursor.skip())
-
-    bodyCursor to UnaryOpExp(maybeOp.value, body, UnknownType, maybeOp.pos)
-  } else {
-    parseMatchExp(cursor)
-  }
+  return parseMatchExp(cursor)
 }
 
 private fun parseMatchExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
@@ -666,7 +607,7 @@ private fun parseReturnExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
   val maybeReturn = cursor.curr()
 
   return if (maybeReturn is TokenWord && maybeReturn.value == "return") {
-    val (finalCursor, ex) = parseThrowExp(cursor.skip())
+    val (finalCursor, ex) = parseExpression(cursor.skip())
 
     finalCursor to ReturnExp(ex, maybeReturn.pos)
   } else {
@@ -678,12 +619,92 @@ private fun parseThrowExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
   val maybeThrow = cursor.curr()
 
   return if (maybeThrow is TokenWord && maybeThrow.value == "throw") {
-    val (finalCursor, ex) = parseCall(cursor.skip())
+    val (finalCursor, ex) = parseExpression(cursor.skip())
 
     finalCursor to ThrowExp(ex, maybeThrow.pos)
   } else {
-    parseCall(cursor)
+    parseBinaryExp(cursor)
   }
+}
+
+private fun parseBinaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
+  val start = ::parseAccessExp
+  val prod = parseBinaryExpSet(setOf("*", "/"), start)
+  val sum = parseBinaryExpSet(setOf("+", "-"), prod)
+  val compare = parseBinaryExpSet(setOf(">", ">=", "<", "<="), sum)
+  val equal = parseBinaryExpSet(setOf("==", "!="), compare)
+  val and = parseBinaryExpSet(setOf("&&"), equal)
+  val or = parseBinaryExpSet(setOf("||"), and)
+  return or(cursor)
+}
+
+private fun parseBinaryExpSet(ops: Set<String>, next: (TokenCursor) -> Pair<TokenCursor, Expression>): (TokenCursor) -> Pair<TokenCursor, Expression> {
+  tailrec fun rec(cursor: TokenCursor, left: Expression): Pair<TokenCursor, Expression> {
+    val maybeOp = cursor.curr()
+
+    return if (maybeOp is TokenSymbol && maybeOp.value in ops) {
+      val (rightCursor, right) = next(cursor.skip())
+
+      rec(rightCursor, BinaryOpExp(maybeOp.value, left, right, UnknownType, maybeOp.pos))
+    } else {
+      cursor to left
+    }
+  }
+
+  return {
+    val (leftCursor, left) = next(it)
+
+    rec(leftCursor, left)
+  }
+}
+
+// just like parseBinaryExpSet except that access must always have an identifier on the right side
+private fun parseAccessExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
+  tailrec fun rec(leftCursor: TokenCursor, left: Expression): Pair<TokenCursor, Expression> {
+    val maybeOp = leftCursor.curr()
+
+    if (maybeOp is TokenSymbol && maybeOp.value == ".") {
+      val (rightCursor, rightExp) = parseCall(leftCursor.skip())
+
+      val newLeft = when (rightExp) {
+        is IdentifierExp -> BinaryOpExp(maybeOp.value, left, rightExp, UnknownType, maybeOp.pos)
+        is CallExp -> {
+          val callRight = rightExp.func
+
+          if (callRight !is IdentifierExp) {
+            maybeOp.pos.fail("Expected identifier to right of access op")
+          }
+
+          val right = BinaryOpExp(maybeOp.value, left, callRight, UnknownType, maybeOp.pos)
+
+          val newCall = rightExp.copy( func = right )
+
+          newCall
+        }
+        is ConstructExp -> {
+          val constructRight = rightExp.base
+
+          if (constructRight !is IdentifierExp) {
+            maybeOp.pos.fail("Expected identifier to right of access op")
+          }
+
+          val right = BinaryOpExp(maybeOp.value, left, constructRight, UnknownType, maybeOp.pos)
+
+          val newCall = rightExp.copy( base = right )
+
+          newCall
+        }
+        else -> maybeOp.pos.fail("Expected identifier to right of access op")
+      }
+
+      return rec(rightCursor, newLeft)
+    } else {
+      return leftCursor to left
+    }
+  }
+
+  val (leftCursor, left) = parseCall(cursor)
+  return rec(leftCursor, left)
 }
 
 private fun parseCall(cursor: TokenCursor): Pair<TokenCursor, Expression> {
@@ -725,7 +746,7 @@ private tailrec fun parseCallArguments(cursor: TokenCursor, init: List<Expressio
 }
 
 private fun parseConstruct(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val (baseCursor, base) = parseConstructTuple(cursor)
+  val (baseCursor, base) = parseIsExp(cursor)
 
   val (maybeBracketCursor, maybeBracket) = baseCursor.next()
 
@@ -773,6 +794,33 @@ private fun parseConstructArgs(cursor: TokenCursor, init: List<Pair<String, Expr
     }
   } else {
     maybeEnd.pos.fail("Expected end of construct")
+  }
+}
+
+private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
+  val (leftCursor, left) = parseUnaryExp(cursor)
+
+  val maybeIs = leftCursor.curr()
+
+  return if (maybeIs is TokenWord && maybeIs.value in setOf("is", "isNot")) {
+    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
+
+    rightCursor to BinaryOpExp(maybeIs.value, left, right, UnknownType, maybeIs.pos)
+  } else {
+    leftCursor to left
+  }
+
+}
+
+private fun parseUnaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
+  val maybeOp = cursor.curr()
+
+  return if (maybeOp is TokenSymbol && maybeOp.value in setOf("-", "!")) {
+    val (bodyCursor, body) = parseExpression(cursor.skip())
+
+    bodyCursor to UnaryOpExp(maybeOp.value, body, UnknownType, maybeOp.pos)
+  } else {
+    parseConstructTuple(cursor)
   }
 }
 
@@ -826,12 +874,8 @@ private fun parseBlockExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
       bodyCursor to BlockExp(body, UnknownType, maybeBracket.pos)
     }
   } else {
-    parseAccessExp(cursor)
+    parseStringTemplate(cursor)
   }
-}
-
-private fun parseAccessExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  return parseBinaryExpSet(setOf("."), ::parseStringTemplate)(cursor)
 }
 
 private fun parseLambdaExp(cursor: TokenCursor, pos: Position): Pair<TokenCursor, Expression> {
