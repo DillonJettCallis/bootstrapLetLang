@@ -16,6 +16,8 @@ fun main(args: Array<String>) {
         sum + (next.relativePath(baseFile) to module)
       }
 
-    executePackage(AstPackage(astPackage), listOf(fileName))
+    val result = executePackage(AstPackage(astPackage), listOf(fileName))
+
+    println("Done")
   }
 }

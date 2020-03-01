@@ -1,19 +1,48 @@
 
-private data StringCursor = { raw: String, index: Int, pos: Position }
+private val escapes = Map.of(
+  (char"\\", char"\\"),
+  (char't', char'\t'),
+  (char'r', char'\r'),
+  (char'n', char'\n'),
+  (char's', char' '),
+  (char'\$', char'\$'),
+  (char "'", char"'"),
+  (char '"', char'"'),
+  (char '`', char'`')
+)
+
+data StringCursor = { raw: String, index: Int, pos: Position }
 
 implement StringCursor {
 
-  fun isEmpty(): Boolean = this.index + 1 >= this.raw.size
+  fun isEmpty(): Boolean = this.index >= this.raw.size
   fun isNotEmpty(): Boolean = !this.isEmpty()
   fun curr(): Char = this.raw.getCharAt(this.index)
-  fun prev(): Char = this.raw.getCharAt(this.index - 1)
-  fun peek(): Char = this.raw.getCharAt(this.index + 1)
-  fun skip(): StringCursor = if (this.index == -1) this{index: this.index + 1} else this{index: this.index + 1, pos: this.pos.increment(this.curr())}
+  fun skip(): StringCursor = this{index: this.index + 1, pos: this.pos.increment(this.curr())}
   fun next(): (StringCursor, Char) = {
-    val next = this.skip()
-    (next, next.curr())
+    (this.skip(), this.curr())
   }
+  fun nextEscaped(): (StringCursor, Char) = {
+    val (nextCursor, firstChar) = this.next()
 
+    if (firstChar == char'\\') {
+      if (nextCursor.isEmpty()) {
+        this.pos.fail("Cannot end string with escape char")
+      }
+
+      val (finalCursor, nextChar) = nextCursor.next()
+
+      val result = escapes.get(nextChar)
+
+      if (result == null) {
+        nextCursor.pos.fail("Invalid escape char")
+      } else {
+        return (finalCursor, result)
+      }
+    } else {
+      return (nextCursor, firstChar)
+    }
+  }
 }
 
 data Position = { line: Int, col: Int, src: String }
@@ -27,8 +56,9 @@ data TokenWord = { value: String, pos: Position }
 data TokenSymbol = { value: String, pos: Position }
 data TokenString = { value: String, pos: Position }
 data TokenNumber = { value: String, pos: Position }
+data TokenEOF = { pos: Position }
 
-type Token = TokenWord | TokenSymbol | TokenString | TokenNumber
+type Token = TokenWord | TokenSymbol | TokenString | TokenNumber | TokenEOF
 
 private val lowerCase = 'abcdefghijklmnopqrstuvwxyz'
 private val upperCase = lowerCase.toUpperCase()
@@ -44,24 +74,28 @@ private val blockCommentStart = '/*'
 private val blockCommentEnd = '*/'
 private val singletonSymbols = '({[]}),;' // these symbols are always alone. They can start but never continue
 private val mergedSymbols = '=<>!-+/*:.&|' // these symbols merge with one another to form compound symbols
-private val symbolStart = mergedSymbols.append(singletonSymbols)
-private val symbolEnd = mergedSymbols
 
 fun lex(src: String, raw: String): List[Token] = {
-  val src = StringCursor{ raw, index: -1, pos: Position{ line: 1, col: 1, src } }
+  val src = StringCursor{ raw, index: 0, pos: Position{ line: 1, col: 1, src } }
 
   muncher(src, List.of())
 }
 
+fun lexFragment(raw: String, pos: Position): List[Token] = {
+  val cursor = StringCursor { raw, index: 0, pos}
+
+  return muncher(cursor, List.of())
+}
+
 private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
-  if (src.isEmpty()) return result
+  if (src.isEmpty()) return result.add(TokenEOF{pos: src.pos})
 
   val (nextCursor, nextChar) = src.next()
 
   match (nextChar) {
     // checking for comments, both block and line
-    char'/' when nextCursor.isNotEmpty() && '/*'.contains(nextCursor.peek()) => {
-      match (nextCursor.peek()) {
+    char'/' when nextCursor.isNotEmpty() && '/*'.contains(nextCursor.curr()) => {
+      match (nextCursor.curr()) {
         char'/' => return muncher(munchLineComment(nextCursor), result)
         char'*' => return muncher(munchBlockComment(nextCursor), result)
       }
@@ -70,13 +104,13 @@ private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
     _ when digitStart.contains(nextChar) => {
       val (finalCursor, value) = munchDigit(nextCursor, nextChar.toString())
 
-      return muncher(finalCursor, result.add(TokenWord {value, pos: nextCursor.pos }))
+      return muncher(finalCursor, result.add(TokenNumber {value, pos: nextCursor.pos }))
     }
     // lex any words
     _ when wordStart.contains(nextChar) => {
       val (finalCursor, value) = munchWord(nextCursor, nextChar.toString())
 
-      return muncher(finalCursor, result.add(TokenNumber {value, pos: nextCursor.pos }))
+      return muncher(finalCursor, result.add(TokenWord {value, pos: nextCursor.pos }))
     }
     // lex strings of any quote type
     _ when quoteChars.contains(nextChar) => {
@@ -84,8 +118,12 @@ private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
 
       return muncher(finalCursor, result.add(TokenString{ value, pos: nextCursor.pos }))
     }
+    // lex singleton symbols
+    _ when singletonSymbols.contains(nextChar) => {
+      return muncher(nextCursor, result.add(TokenSymbol{ value: nextChar.toString(), pos: nextCursor.pos }))
+    }
     // lex symbols
-    _ when symbolStart.contains(nextChar) => {
+    _ when mergedSymbols.contains(nextChar) => {
       val (finalCursor, value) = munchSymbol(nextCursor, nextChar.toString())
 
       return muncher(finalCursor, result.add(TokenSymbol{ value, pos: nextCursor.pos }))
@@ -100,18 +138,22 @@ private fun muncher(src: StringCursor, result: List[Token]): List[Token] = {
 
 private fun munchDigit(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, digitContinue)
 
-private fun munchWord(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, wordContinue)
+fun munchWord(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, wordContinue)
 
-private fun munchSymbol(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, symbolEnd)
+private fun munchSymbol(src: StringCursor, working: String): (StringCursor, String) = munchContinuation(src, working, mergedSymbols)
 
 private fun munchContinuation(src: StringCursor, working: String, continuation: String): (StringCursor, String) = {
+  if (src.isEmpty()) {
+    return (src, working)
+  }
+
   val (nextCursor, nextChar) = src.next()
 
   if (continuation.contains(nextChar)) {
     // tail recursion
-    munchContinuation(nextCursor, working.append(nextChar), continuation)
+    return munchContinuation(nextCursor, working.append(nextChar), continuation)
   } else {
-    (src, working)
+    return (src, working)
   }
 }
 
@@ -128,22 +170,31 @@ private fun munchString(src: StringCursor, working: String, openType: Char): (St
     char'\\' => { // something is escaped. Don't look at it, just pass both along no matter what.
       val (final, escapedChar) = nextCursor.next()
 
-      munchString(final, "$working$nextChar$escapedChar", openType)
+      return munchString(final, "$working$nextChar$escapedChar", openType)
     }
-    _ => munchString(nextCursor, working.append(nextChar), openType)
+    _ => return munchString(nextCursor, working.append(nextChar), openType)
   }
 }
 
 private fun munchLineComment(src: StringCursor): StringCursor = {
-  doUntil(src, { cur => cur.skip() } , { it => it.curr() == char'\n' })
+  return doUntil(src, { cur => cur.skip() } , { it => it.curr() == char'\n' })
 }
 
 private fun munchBlockComment(src: StringCursor): StringCursor = {
-  doUntil(src, { cur => cur.skip() } , { it => it.curr() == char'*' && it.isNotEmpty() && it.peek() == char'/' })
+  val finalCursor = doUntil(src, { cur => cur.skip() } , { it =>
+    if (it.curr() == char'*' && it.isNotEmpty()) {
+      val nextCursor = it.skip()
+      nextCursor.curr() == char'/'
+    } else {
+      false
+    }
+  })
+
+  finalCursor.skip()
 }
 
 private fun doUntil[Item](init: Item, action: { Item -> Item }, test: { Item -> Boolean }): Item =
-  if (test(init)) init else doUntil(action(init), action, test)
+  if (test(init)) init else return doUntil(action(init), action, test)
 
 
 

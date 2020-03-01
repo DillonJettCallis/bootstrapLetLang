@@ -1,0 +1,1224 @@
+import this/Lexer.Token
+import this/Lexer.TokenWord
+import this/Lexer.TokenSymbol
+import this/Lexer.TokenString
+import this/Lexer.TokenNumber
+
+import this/Ast.AccessModifier
+import this/Ast.Public
+import this/Ast.Protected
+import this/Ast.Internal
+import this/Ast.Private
+
+import this/Ast.NullLiteralExp
+import this/Ast.BooleanLiteralExp
+import this/Ast.NumberLiteralExp
+import this/Ast.StringLiteralExp
+import this/Ast.ListLiteralExp
+import this/Ast.CharLiteralExp
+import this/Ast.IdentifierExp
+import this/Ast.BinaryOpExp
+import this/Ast.UnaryOpExp
+import this/Ast.BlockExp
+import this/Ast.CallExp
+import this/Ast.LambdaExp
+import this/Ast.IfExp
+import this/Ast.ReturnExp
+import this/Ast.ThrowExp
+import this/Ast.ConstructExp
+import this/Ast.ConstructTupleExp
+import this/Ast.MatchExp
+import this/Ast.Expression
+import this/Ast.Statement
+import this/Ast.ExpressionStatement
+import this/Ast.AssignmentStatement
+import this/Ast.FunctionStatement
+import this/Ast.TypeStatement
+import this/Ast.ImportStatement
+import this/Ast.DeconstructDataStatement
+import this/Ast.DeconstructTupleStatement
+import this/Ast.DebuggerStatement
+import this/Ast.Declaration
+import this/Ast.AtomDeclare
+import this/Ast.DataDeclare
+import this/Ast.TypeDeclare
+import this/Ast.FunctionDeclare
+import this/Ast.ImportDeclare
+import this/Ast.ConstantDeclare
+import this/Ast.ProtocolDeclare
+import this/Ast.ImplDeclare
+import this/Ast.MatchPattern
+import this/Ast.AstModule
+import this/Ast.AstPackage
+
+import this/StringTemplate.parseStringTemplateWithPrefix
+
+import this/Type.PrimitiveType
+import this/Type.AtomType
+import this/Type.DataType
+import this/Type.ProtocolType
+import this/Type.FunctionType
+import this/Type.TupleType
+import this/Type.GenericType
+import this/Type.UnknownType
+import this/Type.NamedType
+import this/Type.PlaceholderType
+import this/Type.UnionType
+import this/Type.IntersectionType
+import this/Type.CharType
+import this/Type.StringType
+import this/Type.IntType
+import this/Type.FloatType
+import this/Type.BooleanType
+import this/Type.AnyType
+import this/Type.NullType
+import this/Type.UnitType
+import this/Type.NothingType
+import this/Type.ListType
+import this/Type.MapType
+import this/Type.Type
+import this/Type.makeUnionType
+import this/Type.makeIntersectionType
+import this/Type.listOfType
+import this/Type.stringTemplateType
+
+
+private data TokenCursor = { tokens: List[Token], index: Int }
+
+implement TokenCursor {
+
+  fun isEmpty(): Boolean = this.index + 1 >= this.tokens.size
+  fun curr(): Token = this.tokens.get(this.index)
+  fun skip(): TokenCursor = this{index: this.index + 1}
+  fun next(): (TokenCursor, Token) = (this.skip(), this.curr())
+
+}
+
+fun parse(tokens: List[Token]): AstModule = {
+  val cursor = TokenCursor{ tokens, index: 0 }
+
+  parseModule(cursor, List.of())
+}
+
+fun parseExpressionOnly(tokens: List[Token]): Expression = {
+  val cursor = TokenCursor{ tokens, index: 0 }
+
+  val (final, result) = parseExpression(cursor)
+
+  result
+}
+
+private fun parseModule(cursor: TokenCursor, declarations: List[Declaration]): AstModule = {
+  if (cursor.isEmpty()) {
+    return AstModule{declarations}
+  } else {
+    val (nextCursor, token) = cursor.next()
+
+    match (token) {
+      _ when token is TokenWord => {
+        val (finalCursor, dec) = match (token.value) {
+          "private" => parseDeclaration(nextCursor, Private)
+          "internal" => parseDeclaration(nextCursor, Internal)
+          "protected" => parseDeclaration(nextCursor, Protected)
+          "public" => parseDeclaration(nextCursor, Public)
+          _ => parseDeclaration(cursor, Internal)
+        }
+
+        return parseModule(finalCursor, declarations.add(dec))
+      }
+
+      _ => token.pos.fail('Expected declaration')
+    }
+  }
+}
+
+private fun parseDeclaration(cursor: TokenCursor, access: AccessModifier): (TokenCursor, Declaration) = {
+  val (nextCursor, curr) = cursor.next()
+  val pos = curr.pos
+
+  if (curr is TokenWord) {
+    match (curr.value) {
+      "val" => return parseConstDeclare(nextCursor, access, pos)
+      "atom" => return parseAtomDeclare(nextCursor, access, pos)
+      "fun" => return parseFunctionDeclare(nextCursor, access, pos)
+      "data" => return parseDataDeclare(nextCursor, access, pos)
+      "type" => return parseTypeDeclare(nextCursor, access, pos)
+      "import" => return parseImportDeclare(nextCursor, pos)
+      "protocol" => pos.fail("Not yet implemented")
+      "implement" => return parseImplDeclare(nextCursor, access, pos)
+      _ => pos.fail("Expected declaration but found `${curr.value}` ")
+    }
+  } else {
+    pos.fail("Expected declaration but found `${curr}` ")
+  }
+}
+
+private fun parseConstDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, ConstantDeclare) = {
+  val (assignCursor, assign) = parseSingleAssignmentStatement(cursor, pos)
+
+  (assignCursor, ConstantDeclare{assign, access, pos})
+}
+
+private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, AtomDeclare) = {
+  val (finalCursor, token) = cursor.next()
+
+  if (token is TokenWord) {
+    return (finalCursor, AtomDeclare{name: token.value, access, pos})
+  } else {
+    token.pos.fail("Expected type")
+  }
+}
+
+private fun parseTypeDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, TypeDeclare) = {
+  val (finalCursor, statement) = parseTypeStatement(cursor, pos)
+
+  return (finalCursor, TypeDeclare{type: statement, access, pos})
+}
+
+private fun parseTypeStatement(cursor: TokenCursor, pos: Position): (TokenCursor, TypeStatement) = {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if ( nameToken isNot TokenWord ) {
+    nameToken.pos.fail("Expected name of type")
+  }
+
+  val name = nameToken.value
+
+  val (equalsCursor, equals) = nameCursor.next()
+
+  if (equals isNot TokenSymbol || equals.value != "=") {
+    equals.pos.fail("Expected type assignment")
+  }
+
+  val (typeCursor, type) = parseType(equalsCursor)
+
+  return (typeCursor, TypeStatement{name, value: type, pos})
+}
+
+private fun parseImportDeclare(cursor: TokenCursor, pos: Position): (TokenCursor, ImportDeclare) = {
+  val (finalCursor, statement) = parseImportStatement(cursor, pos)
+
+  return (finalCursor, ImportDeclare{statement, pos, access: Private})
+}
+
+private fun parseImportStatement(cursor: TokenCursor, pos: Position): (TokenCursor, ImportStatement) = {
+  val (packageCursor, packageToken) = cursor.next()
+
+  if (packageToken isNot TokenWord) {
+    packageToken.pos.fail("Expected import package name")
+  }
+
+  val packageName = packageToken.value
+
+  val (slashCursor, slash) = packageCursor.next()
+
+  if (slash isNot TokenSymbol || slash.value != "/") {
+    slash.pos.fail("Expected import package module delimiter '/'")
+  }
+
+  fun parseImportPath(cursor: TokenCursor, init: List[String]): (TokenCursor, List[String]) = {
+    val (nextCursor, nextToken) = cursor.next()
+
+    if (nextToken isNot TokenWord) {
+      nextToken.pos.fail("Expected module path in import")
+    }
+
+    val result = init.add(nextToken.value)
+
+    val maybeDot = nextCursor.curr()
+
+    if (maybeDot is TokenSymbol && maybeDot.value == ".") {
+      return parseImportPath(nextCursor.skip(), result)
+    } else {
+      return (nextCursor, result)
+    }
+  }
+
+  val (finalCursor, modulePath) = parseImportPath(slashCursor, List.of())
+
+  return (finalCursor, ImportStatement{packageName, modulePath, pos})
+}
+
+private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, DataDeclare) = {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken isNot TokenWord) {
+    nameToken.pos.fail("Expected name of data structure")
+  }
+
+  val name = nameToken.value
+
+  val (equalsCursor, equals) = nameCursor.next()
+
+  if (equals isNot TokenSymbol || equals.value != "=") {
+    equals.pos.fail("Expected data declaration assignment")
+  }
+
+  val (openCursor, open) = equalsCursor.next()
+
+  if (open isNot TokenSymbol || open.value != "{") {
+    equals.pos.fail("Expected data declaration open bracket")
+  }
+
+  val (finalCursor, fields) = parseDataField(openCursor, Map.of())
+
+  return (finalCursor, DataDeclare{name, body: fields, access, pos})
+}
+
+private fun parseDataField(cursor: TokenCursor, init: Map[String, Type]): (TokenCursor, Map[String, Type]) = {
+  val (nameCursor, name) = cursor.next()
+
+  if (name isNot TokenWord) {
+    name.pos.fail("Expected field name")
+  }
+
+  val (colonCursor, colon) = nameCursor.next()
+
+  if (colon isNot TokenSymbol || colon.value != ":") {
+    colon.pos.fail("Expected data field type")
+  }
+
+  val (typeCursor, type) = parseType(colonCursor)
+
+  val result = init.set(name.value, type)
+
+  val (endCursor, maybeEnd) = typeCursor.next()
+
+  if (maybeEnd isNot TokenSymbol) {
+    maybeEnd.pos.fail("Expected end of data field declarations")
+  }
+
+  match (maybeEnd.value) {
+    "," => return parseDataField(endCursor, result)
+    "}" => return (endCursor, result)
+    _ => maybeEnd.pos.fail("Expected end of data field declarations")
+  }
+}
+
+private fun parseImplDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, ImplDeclare) = {
+  val (baseCursor, baseToken) = cursor.next()
+
+  if (baseToken isNot TokenWord) {
+    baseToken.pos.fail("Expected base type for implementation")
+  }
+
+  val base = NamedType{name: baseToken.value}
+
+  val maybeFor = baseCursor.curr()
+
+  val (forCursor, forType) = if (maybeFor is TokenWord && maybeFor.value == "for") {
+    val (forCursor, forType) = { baseCursor.skip() } .next()
+
+    if (forType isNot TokenWord) {
+      forType.pos.fail("Expected for type of implementation")
+    }
+
+    (forCursor, NamedType{name: forType.value})
+  } else {
+    (baseCursor, null)
+  }
+
+  val (openCursor, openBracket) = forCursor.next()
+
+  if (openBracket isNot TokenSymbol || openBracket.value != "{") {
+    openBracket.pos.fail("Expected open bracket of implementation block")
+  }
+
+  val (finalCursor, funcs) = parseImplBody(openCursor, base, List.of())
+
+  return (finalCursor, ImplDeclare{base, proto: forType, funcs, access, pos} )
+}
+
+private fun parseImplBody(cursor: TokenCursor, base: Type, init: List[FunctionDeclare]): (TokenCursor, List[FunctionDeclare]) = {
+  val (nextCursor, maybeAccess) = cursor.next()
+
+  if (maybeAccess isNot TokenWord) {
+    maybeAccess.pos.fail("Expected function declaration")
+  }
+
+  val (startCursor, access) = match (maybeAccess.value) {
+    "private" => (nextCursor, Private)
+    "internal" => (nextCursor, Internal)
+    "protected" => (nextCursor, Protected)
+    "public" => (nextCursor, Public)
+    "fun" => (cursor, Internal)
+    _ => maybeAccess.pos.fail("Expected function declaration")
+  }
+
+  val (funCursor, funToken) = startCursor.next()
+
+  if (funToken isNot TokenWord || funToken.value != "fun") {
+    funToken.pos.fail("Expected function declaration")
+  }
+
+  val (finalCursor, func) = parseFunctionDeclare(funCursor, access, funToken.pos)
+  val result = init.add(
+    func {
+      func: func.func {
+        body: func.func.body {
+          args: func.func.body.args.prepend("this"),
+          type: func.func.body.type {
+            paramTypes: func.func.body.type.paramTypes.prepend(base)
+          }
+        }
+      }
+    }
+  )
+
+  val maybeEnd = finalCursor.curr()
+
+  if (maybeEnd is TokenSymbol && maybeEnd.value == "}") {
+    return (finalCursor.skip(), result)
+  } else {
+    return parseImplBody(finalCursor, base, result)
+  }
+}
+
+private fun parseFunctionDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, FunctionDeclare) = {
+  val (finalCursor, functionStatement) = parseFunctionStatement(cursor, pos)
+
+  return (finalCursor, FunctionDeclare{func: functionStatement, access, pos})
+}
+
+private fun parseFunctionStatement(cursor: TokenCursor, pos: Position): (TokenCursor, FunctionStatement) = {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken is TokenWord) {
+    val name = nameToken.value
+
+    val maybeBracket = nameCursor.curr()
+
+    val (typeParamCursor, typeParams) = if (maybeBracket is TokenSymbol && maybeBracket.value == "[") {
+      parseFunctionTypeParameters(nameCursor.skip(), List.of())
+    } else {
+      (nameCursor, List.of())
+    }
+
+    val (parensCursor, openParen) = typeParamCursor.next()
+
+    if (openParen isNot TokenSymbol || openParen.value != "(") {
+      openParen.pos.fail("Expected open ( of function declaration")
+    }
+
+    val maybeClose = parensCursor.curr()
+
+    val (closeCursor, parameters) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
+      (parensCursor.skip(), List.of())
+    } else {
+      parseFunctionParameters(parensCursor, List.of())
+    }
+
+    val (colonCursor, colon) = closeCursor.next()
+
+    if (colon isNot TokenSymbol || colon.value != ":") {
+      colon.pos.fail("Expected function result type declaration")
+    }
+
+    val (resultCursor, resultType) = parseType(colonCursor)
+    val (equalsCursor, equals) = resultCursor.next()
+
+    if (equals isNot TokenSymbol || equals.value != "=") {
+      equals.pos.fail("Expected function body assignment")
+    }
+
+    val (bodyCursor, body) = parseExpression(equalsCursor)
+
+    val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), resultType, typeParams}
+
+    val lambdaExp = LambdaExp{args: parameters.map({ it => val (first, second) = it; first }), body, type: functionType, pos}
+
+    return (bodyCursor, FunctionStatement{name, body: lambdaExp, pos})
+  } else {
+    nameToken.pos.fail("Expected function name")
+  }
+}
+
+private fun parseAssignmentStatement(cursor: TokenCursor, pos: Position): (TokenCursor, Statement) = {
+  val maybeDestructure = cursor.curr()
+
+  match (maybeDestructure) {
+    _ when maybeDestructure is TokenSymbol && maybeDestructure.value == "(" => {
+      val (patternCursor, patterns) = parseDestructureTuplePatterns(cursor.skip(), List.of())
+
+      val (equalsCursor, equals) = patternCursor.next()
+
+      if (equals isNot TokenSymbol || equals.value != "=") {
+        equals.pos.fail("Expected assignment = operator")
+      }
+
+      val (bodyCursor, body) = parseExpression(equalsCursor)
+
+      return (bodyCursor, DeconstructTupleStatement{base: body, names: patterns, pos})
+    }
+    _ when maybeDestructure is TokenSymbol && maybeDestructure.value == "{" => {
+      val (patternCursor, patterns) = parseDestructureDataPatterns(cursor.skip(), List.of())
+
+      val (equalsCursor, equals) = patternCursor.next()
+
+      if (equals isNot TokenSymbol || equals.value != "=") {
+        equals.pos.fail("Expected assignment = operator")
+      }
+
+      val (bodyCursor, body) = parseExpression(equalsCursor)
+
+      return (bodyCursor, DeconstructDataStatement{base: body, values: patterns, pos})
+    }
+    _ when maybeDestructure is TokenWord => return parseSingleAssignmentStatement(cursor, pos)
+    _ => maybeDestructure.pos.fail("Expected assignment pattern")
+  }
+}
+
+private fun parseSingleAssignmentStatement(cursor: TokenCursor, pos: Position): (TokenCursor, AssignmentStatement) = {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken isNot TokenWord) {
+    nameToken.pos.fail("Expected assignment identifier")
+  }
+
+  val name = nameToken.value
+
+  val (equalsCursor, equals) = nameCursor.next()
+
+  if (equals isNot TokenSymbol || equals.value != "=") {
+    equals.pos.fail("Expected assignment = operator")
+  }
+
+  val (bodyCursor, body) = parseExpression(equalsCursor)
+
+  return (bodyCursor, AssignmentStatement{name, body, pos})
+}
+
+private fun parseDestructureTuplePatterns(cursor: TokenCursor, init: List[String]): (TokenCursor, List[String]) = {
+  val (firstCursor, nameToken) = cursor.next()
+
+  if (nameToken isNot TokenWord) {
+    nameToken.pos.fail("Expected identifier in data destructure assignment")
+  }
+
+  val name = nameToken.value
+
+  val result = init.add(name)
+
+  val (endCursor, maybeEnd) = firstCursor.next()
+
+  if (maybeEnd isNot TokenSymbol) {
+    maybeEnd.pos.fail("Expected end of destructure tuple pattern")
+  }
+
+  match (maybeEnd.value) {
+    "," => return parseDestructureTuplePatterns(endCursor, result)
+    ")" => return (endCursor, result)
+    _ => maybeEnd.pos.fail("Expected end of destructure tuple pattern")
+  }
+}
+
+private fun parseDestructureDataPatterns(cursor: TokenCursor, init: List[(String, String)]): (TokenCursor, List[(String, String)]) = {
+  val (firstCursor, nameToken) = cursor.next()
+
+  if (nameToken isNot TokenWord) {
+    nameToken.pos.fail("Expected identifier in data destructure assignment")
+  }
+
+  val name = nameToken.value
+
+  val maybeColon = firstCursor.curr()
+
+  val (baseCursor, baseName) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
+    val (baseCursor, baseToken) = firstCursor.next()
+
+    if (baseToken isNot TokenWord) {
+      baseToken.pos.fail("Expected identifier in data destructure assignment")
+    }
+
+    (baseCursor, baseToken.value)
+  } else {
+    (firstCursor, name)
+  }
+
+  val result = init.set(baseName, name)
+
+  val (endCursor, maybeEnd) = baseCursor.next()
+
+  if (maybeEnd isNot TokenSymbol) {
+    maybeEnd.pos.fail("Expected end of destructure data pattern")
+  }
+
+  match (maybeEnd.value) {
+    "," => return parseDestructureDataPatterns(endCursor, result)
+    "}" => return (endCursor, result)
+    _ => maybeEnd.pos.fail("Expected end of destructure data pattern")
+  }
+}
+
+private fun parseFunctionTypeParameters(cursor: TokenCursor, init: List[PlaceholderType]): (TokenCursor, List[PlaceholderType]) = {
+  val (nextCursor, nextWord) = cursor.next()
+
+  if (nextWord is TokenWord) {
+    val result = init.add(PlaceholderType{name: nextWord.value})
+
+    val (finalCursor, maybeEnd) = nextCursor.next()
+
+    if (maybeEnd is TokenSymbol) {
+      match (maybeEnd.value) {
+        "]" => return (finalCursor, result)
+        "," => return parseFunctionTypeParameters(finalCursor, result)
+      }
+    }
+  }
+
+  nextWord.pos.fail("Expected function type parameter declaration")
+}
+
+private fun parseFunctionParameters(cursor: TokenCursor, init: List[(String, Type)]): (TokenCursor, List[(String, Type)]) = {
+  val (nextCursor, nextWord) = cursor.next()
+
+  if (nextWord is TokenWord) {
+    val name = nextWord.value
+    val (colonCursor, colon) = nextCursor.next()
+
+    if (colon isNot TokenSymbol || colon.value != ":") {
+      colon.pos.fail("Expected ':'")
+    }
+
+    val (typeCursor, type) = parseType(colonCursor)
+
+    val result = init.add( (name, type) )
+
+    val (finalCursor, maybeEnd) = typeCursor.next()
+
+    if (maybeEnd is TokenSymbol) {
+      match (maybeEnd.value) {
+        ")" => return (finalCursor, result)
+        "," => return parseFunctionParameters(finalCursor, result)
+        _ => nextWord.pos.fail("Expected function parameter declaration")
+      }
+    }
+  }
+
+  nextWord.pos.fail("Expected function parameter declaration")
+}
+
+private fun parseExpression(cursor: TokenCursor): (TokenCursor, Expression) = {
+  return parseBinaryExp(cursor)
+}
+
+private fun parseBinaryExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val start = parseIsExp
+  val access = parseBinaryExpSet(Set.of("."), start)
+  val prod = parseBinaryExpSet(Set.of("*", "/"), access)
+  val sum = parseBinaryExpSet(Set.of("+", "-"), prod)
+  val compare = parseBinaryExpSet(Set.of(">", ">=", "<", "<="), sum)
+  val equal = parseBinaryExpSet(Set.of("==", "!="), compare)
+  val and = parseBinaryExpSet(Set.of("&&"), equal)
+  val or = parseBinaryExpSet(Set.of("||"), and)
+  return or(cursor)
+}
+
+private fun parseBinaryExpSet(ops: Set[String], next: {TokenCursor -> (TokenCursor, Expression)}): {TokenCursor -> (TokenCursor, Expression)} = {
+  fun rec(cursor: TokenCursor, left: Expression): (TokenCursor, Expression) = {
+    val maybeOp = cursor.curr()
+
+    if (maybeOp is TokenSymbol && ops.contains(maybeOp.value)) {
+      val (rightCursor, right) = next(cursor.skip())
+
+      return rec(rightCursor, BinaryOpExp{op: maybeOp.value, left, right, type: UnknownType, pos: maybeOp.pos})
+    } else {
+      return (cursor, left)
+    }
+  }
+
+  return { it =>
+    val (leftCursor, left) = next(it)
+
+    rec(leftCursor, left)
+  }
+}
+
+private val isKeywords = Set.of("is", "isNot")
+
+private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (leftCursor, left) = parseUnaryExp(cursor)
+
+  val maybeIs = leftCursor.curr()
+
+  if (maybeIs is TokenWord && isKeywords.contains(maybeIs.value)) {
+    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
+
+    return (rightCursor, BinaryOpExp{op: maybeIs.value, left, right, type: UnknownType, pos: maybeIs.pos})
+  } else {
+    return (leftCursor, left)
+  }
+
+}
+
+private val unaryOps = Set.of("-", "!")
+
+private fun parseUnaryExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeOp = cursor.curr()
+
+  if (maybeOp is TokenSymbol && unaryOps.contains(maybeOp.value)) {
+    val (bodyCursor, body) = parseExpression(cursor.skip())
+
+    return (bodyCursor, UnaryOpExp{op: maybeOp.value, ex: body, type: UnknownType, pos: maybeOp.pos})
+  } else {
+    return parseMatchExp(cursor)
+  }
+}
+
+private fun parseMatchExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeMatch = cursor.curr()
+
+  if (maybeMatch is TokenWord && maybeMatch.value == "match") {
+    val skipped = cursor.skip()
+    val (openParenCursor, openParen) = skipped.next()
+
+    if (openParen isNot TokenSymbol || openParen.value != "(") {
+      openParen.pos.fail("Expected open paren after match")
+    }
+
+    val (baseCursor, base) = parseExpression(openParenCursor)
+
+    val (closeParenCursor, closeParen) = baseCursor.next()
+
+    if (closeParen isNot TokenSymbol || closeParen.value != ")") {
+      closeParen.pos.fail("Expected close paren after match value")
+    }
+
+    val (openCursor, openBracket) = closeParenCursor.next()
+
+    if (openBracket isNot TokenSymbol || openBracket.value != "{") {
+      openBracket.pos.fail("Expected open bracket of match expression")
+    }
+
+    val (patternCursor, patterns) = parseMatchPattern(openCursor, List.of())
+
+    return (patternCursor, MatchExp{base, patterns, type: UnknownType, pos: maybeMatch.pos})
+  } else {
+    return parseIfExp(cursor)
+  }
+}
+
+private fun parseMatchPattern(cursor: TokenCursor, init: List[MatchPattern]): (TokenCursor, List[MatchPattern]) = {
+  val (baseCursor, base) = parseExpression(cursor)
+
+  val maybeWhen = baseCursor.curr()
+
+  val (guardCursor, guard) = if (maybeWhen is TokenWord && maybeWhen.value == "when") {
+    parseExpression(baseCursor.skip())
+  } else {
+    (baseCursor, null)
+  }
+
+  val (arrowCursor, arrow) = guardCursor.next()
+
+  if (arrow isNot TokenSymbol || arrow.value != "=>") {
+    arrow.pos.fail("Expected arrow of match pattern")
+  }
+
+  val (bodyCursor, body) = parseExpression(arrowCursor)
+
+  val result = init.add(MatchPattern{base, guard, body, pos: { cursor.curr() }.pos})
+
+  val maybeEnd = bodyCursor.curr()
+
+  if (maybeEnd is TokenSymbol && maybeEnd.value == "}") {
+    return (bodyCursor.skip(), result)
+  } else {
+    return parseMatchPattern(bodyCursor, result)
+  }
+}
+
+private fun parseIfExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeIf = cursor.curr()
+
+  if (maybeIf is TokenWord && maybeIf.value == "if") {
+    val skipped = cursor.skip()
+    val (openParenCursor, openParen) = skipped.next()
+
+    if (openParen isNot TokenSymbol || openParen.value != "(") {
+      openParen.pos.fail("Expected open paren after if")
+    }
+
+    val (conditionCursor, condition) = parseExpression(openParenCursor)
+
+    val (closeParenCursor, closeParen) = conditionCursor.next()
+
+    if (closeParen isNot TokenSymbol || closeParen.value != ")") {
+      openParen.pos.fail("Expected close paren after if condition")
+    }
+
+    val (thenCursor, thenExp) = parseExpression(closeParenCursor)
+
+    val maybeElse = thenCursor.curr()
+
+    val (elseCursor, elseExp) = if (maybeElse is TokenWord && maybeElse.value == "else") {
+      parseExpression(thenCursor.skip())
+    } else {
+      (thenCursor, null)
+    }
+
+    return (elseCursor, IfExp{condition, thenExp, elseExp, type: UnknownType, pos: maybeIf.pos})
+  } else {
+    return parseReturnExp(cursor)
+  }
+}
+
+private fun parseReturnExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeReturn = cursor.curr()
+
+  return if (maybeReturn is TokenWord && maybeReturn.value == "return") {
+    val (finalCursor, ex) = parseThrowExp(cursor.skip())
+
+    (finalCursor, ReturnExp{ex, pos: maybeReturn.pos})
+  } else {
+    parseThrowExp(cursor)
+  }
+}
+
+private fun parseThrowExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeThrow = cursor.curr()
+
+  return if (maybeThrow is TokenWord && maybeThrow.value == "throw") {
+    val (finalCursor, ex) = parseCall(cursor.skip())
+
+    (finalCursor, ThrowExp{ex, type: NothingType, pos: maybeThrow.pos})
+  } else {
+    parseCall(cursor)
+  }
+}
+
+private fun parseCall(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (callCursor, base) = parseConstruct(cursor)
+
+  val maybeOpen = callCursor.curr()
+
+  if (maybeOpen is TokenSymbol && maybeOpen.value == "(") {
+    val openCursor = callCursor.skip()
+    val maybeClose = openCursor.curr()
+
+    val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
+      (openCursor.skip(), List.of())
+    } else {
+      parseCallArguments(openCursor, List.of())
+    }
+
+    return (closeCursor, CallExp{func: base, arguments: args, type: UnknownType, pos: base.pos})
+  } else {
+    return (callCursor, base)
+  }
+}
+
+private fun parseCallArguments(cursor: TokenCursor, init: List[Expression]): (TokenCursor, List[Expression]) = {
+  val (nextCursor, next) = parseExpression(cursor)
+  val result = init.add(next)
+
+  val (closeCursor, maybeClose) = nextCursor.next()
+
+  if (maybeClose is TokenSymbol) {
+    match (maybeClose.value) {
+      "," => return parseCallArguments(closeCursor, result)
+      ")" => return (closeCursor, result)
+      _ => maybeClose.pos.fail("Expected end of arguments to function call")
+    }
+  } else {
+    maybeClose.pos.fail("Expected end of arguments to function call")
+  }
+}
+
+private fun parseConstruct(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (baseCursor, base) = parseConstructTuple(cursor)
+
+  val (maybeBracketCursor, maybeBracket) = baseCursor.next()
+
+  if (maybeBracket is TokenSymbol && maybeBracket.value == "{") {
+    val maybeClose = maybeBracketCursor.curr()
+
+    val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == "}") {
+      (maybeBracketCursor.skip(), List.of())
+    } else {
+      parseConstructArgs(maybeBracketCursor, List.of())
+    }
+
+    return (closeCursor, ConstructExp{base, values: args, type: UnknownType, pos: base.pos})
+  } else {
+    return (baseCursor, base)
+  }
+}
+
+private fun parseConstructArgs(cursor: TokenCursor, init: List[(String, Expression)]): (TokenCursor, List[(String, Expression)]) = {
+  val (nameCursor, nameToken) = cursor.next()
+
+  if (nameToken isNot TokenWord) {
+    nameToken.pos.fail("Expected field name")
+  }
+
+  val name = nameToken.value
+
+  val maybeColon = nameCursor.curr()
+
+  val (bodyExp, body) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
+    parseExpression(nameCursor.skip())
+  } else {
+    (nameCursor, IdentifierExp{name, type: UnknownType, pos: nameToken.pos})
+  }
+
+  val result = init.add( (name, body) )
+
+  val (endCursor, maybeEnd) = bodyExp.next()
+
+  return if (maybeEnd is TokenSymbol) {
+    match (maybeEnd.value) {
+      "," => parseConstructArgs(endCursor, result)
+      "}" => (endCursor, result)
+      _ => maybeEnd.pos.fail("Expected end of construct")
+    }
+  } else {
+    maybeEnd.pos.fail("Expected end of construct")
+  }
+}
+
+private fun parseConstructTuple(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeParen = cursor.curr()
+
+  if (maybeParen is TokenSymbol && maybeParen.value == "(") {
+    val openParenCursor = cursor.skip()
+    val maybeClose = openParenCursor.curr()
+
+    val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
+      (openParenCursor.skip(), List.of())
+    } else {
+      parseConstructTupleArgs(openParenCursor, List.of())
+    }
+
+    return (closeCursor, ConstructTupleExp{values: args, type: UnknownType, pos: maybeParen.pos})
+  } else {
+    return parseBlockExp(cursor)
+  }
+}
+
+private fun parseConstructTupleArgs(cursor: TokenCursor, init: List[Expression]): (TokenCursor, List[Expression]) = {
+  val (bodyExp, body) = parseExpression(cursor)
+
+  val result = init.add(body)
+
+  val (endCursor, maybeEnd) = bodyExp.next()
+
+  return if (maybeEnd is TokenSymbol) {
+    match (maybeEnd.value) {
+      "," => parseConstructTupleArgs(endCursor, result)
+      ")" => (endCursor, result)
+      _ => maybeEnd.pos.fail("Expected end of tuple construct")
+    }
+  } else {
+    maybeEnd.pos.fail("Expected end of tuple construct")
+  }
+}
+
+private fun parseBlockExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val maybeBracket = cursor.curr()
+
+  return if (maybeBracket is TokenSymbol && maybeBracket.value == "{") {
+    if (checkIsLambda(cursor.skip(), 1)) {
+      parseLambdaExp(cursor.skip(), maybeBracket.pos)
+    } else {
+      val (bodyCursor, body) = parseBlockStatement(cursor.skip(), List.of())
+
+      (bodyCursor, BlockExp{body, type: UnknownType, pos: maybeBracket.pos})
+    }
+  } else {
+    parseAccessExp(cursor)
+  }
+}
+
+private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val accessParser = parseBinaryExpSet(Set.of("."), parseStringTemplate)
+  return accessParser(cursor)
+}
+
+private val isLambdaArrows = Set.of("->", "=>")
+
+private fun parseLambdaExp(cursor: TokenCursor, pos: Position): (TokenCursor, Expression) = {
+  val maybeArrow = cursor.curr()
+
+  val (paramCursor, parameters) = if (maybeArrow is TokenSymbol && isLambdaArrows.contains(maybeArrow.value)) {
+    (cursor, List.of())
+  } else {
+    parseLambdaParameters(cursor, List.of())
+  }
+
+  val maybeTypeArrow = paramCursor.curr()
+
+  val (resultCursor, resultType) = if (maybeTypeArrow is TokenSymbol && maybeTypeArrow.value == "->") {
+    parseType(paramCursor.skip())
+  } else {
+    (paramCursor, UnknownType)
+  }
+
+  val (arrowCursor, arrowToken) = resultCursor.next()
+
+  if (arrowToken isNot TokenSymbol || arrowToken.value != "=>") {
+    arrowToken.pos.fail("Expected lambda expression arrow")
+  }
+
+  val (bodyCursor, body) = parseBlockStatement(arrowCursor, List.of())
+
+  val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), resultType, typeParams: List.of()}
+
+  return (bodyCursor, LambdaExp{args: parameters.map({ it => val (first, second) = it; first }), body: BlockExp{body, type: UnknownType, pos}, type: functionType, pos})
+}
+
+private fun parseLambdaParameters(cursor: TokenCursor, init: List[(String, Type)]): (TokenCursor, List[(String, Type)]) = {
+  val (wordCursor, wordToken) = cursor.next()
+
+  if (wordToken is TokenWord) {
+    val name = wordToken.value
+
+    val maybeColon = wordCursor.curr()
+
+    val (typeCursor, type) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
+      parseType(wordCursor.skip())
+    } else {
+      (wordCursor, UnknownType)
+    }
+
+    val result = init.add( (name, type) )
+
+    val maybeEnd = typeCursor.curr()
+
+    if (maybeEnd is TokenSymbol) {
+      match (maybeEnd.value) {
+        "->" => return (typeCursor, result)
+        "=>" => return (typeCursor, result)
+        ","=> return parseLambdaParameters(typeCursor.skip(), result)
+      }
+    }
+  }
+
+  wordToken.pos.fail("Expected lambda parameter")
+}
+
+private fun checkIsLambda(cursor: TokenCursor, depth: Int): Boolean = {
+  val (nextCursor, nextToken) = cursor.next()
+
+  val nextDepth = if (nextToken is TokenSymbol) {
+    match (nextToken.value) {
+      "{" => depth + 1
+      "}" => if (depth - 1 == 0) return false else depth - 1
+      "=>" => if (depth == 1) return true else depth
+      _ => depth
+    }
+  } else {
+    depth
+  }
+
+  return checkIsLambda(nextCursor, nextDepth)
+}
+
+private fun parseBlockStatement(cursor: TokenCursor, init: List[Statement]): (TokenCursor, List[Statement]) = {
+  val start = cursor.curr()
+
+  if (start is TokenSymbol && start.value == ";") {
+    return parseBlockStatement(cursor.skip(), init)
+  }
+
+  if (start is TokenSymbol && start.value == "}") {
+    return (cursor.skip(), init)
+  }
+
+  val (finalCursor, statement) = if (start is TokenWord) {
+    match (start.value) {
+      "debugger" => (cursor.skip(), DebuggerStatement{pos: start.pos})
+      "val" => parseAssignmentStatement(cursor.skip(), start.pos)
+      "fun" => parseFunctionStatement(cursor.skip(), start.pos)
+      "type" => parseTypeStatement(cursor.skip(), start.pos)
+      "import" => parseImportStatement(cursor.skip(), start.pos)
+      "return" => {
+        val (returnCursor, returnEx) = parseExpression(cursor.skip())
+        (returnCursor, ExpressionStatement{ex: ReturnExp{ex: returnEx, type: UnknownType, pos: start.pos}, pos: start.pos} )
+      }
+      "throw" => {
+        val (throwCursor, throwEx) = parseExpression(cursor.skip())
+        (throwCursor, ExpressionStatement{ex: ThrowExp{ex: throwEx, type: UnknownType, pos: start.pos}, pos: start.pos} )
+      }
+      _ => {
+        val (exCursor, ex) = parseExpression(cursor)
+        (exCursor, ExpressionStatement{ex, pos: start.pos})
+      }
+    }
+  } else {
+    val (exCursor, ex) = parseExpression(cursor)
+    (exCursor, ExpressionStatement{ex, pos: start.pos})
+  }
+
+  val result = init.add(statement)
+
+  return parseBlockStatement(finalCursor, result)
+}
+
+private fun parseStringTemplate(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (leftCursor, left) = parseTermExp(cursor)
+
+  if (left is IdentifierExp) {
+    val maybeString = leftCursor.curr()
+
+    if (maybeString is TokenString) {
+      return (leftCursor.skip(), parseStringTemplateWithPrefix(maybeString.value, maybeString.pos, left.name))
+    }
+  }
+
+  return (leftCursor, left)
+}
+
+private fun parseTermExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (finalCursor, token) = cursor.next()
+  val pos = token.pos
+
+  val ex = match(token) {
+    // TODO: support both floats and ints
+    _ when token is TokenNumber => NumberLiteralExp{value: token.value, type: FloatType, pos}
+    _ when token is TokenString => parseStringTemplateWithPrefix(token.value, pos, null)
+    _ when token is TokenWord => {
+      match (token.value) {
+        "null" => NullLiteralExp{type: NullType, pos}
+        "true" => BooleanLiteralExp{value: true, type: BooleanType, pos}
+        "false" => BooleanLiteralExp{value: false, type: BooleanType, pos}
+        _ => IdentifierExp{name: token.value, type: UnknownType, pos}
+      }
+    }
+    _ => token.pos.fail("Expected expression")
+  }
+
+  return (finalCursor, ex)
+}
+
+private fun parseType(cursor: TokenCursor): (TokenCursor, Type) = {
+  return parseTypeTuple(cursor)
+}
+
+
+private fun parseTypeTuple(cursor: TokenCursor): (TokenCursor, Type) = {
+  val maybeParen = cursor.curr()
+
+  return if (maybeParen is TokenSymbol && maybeParen.value == "(") {
+    val (nextCursor, result) = parseTypeList(cursor.skip())
+    val (finalCursor, closeParen) = nextCursor.next()
+
+    if (closeParen is TokenSymbol && closeParen.value == ")") {
+      (finalCursor, TupleType{paramTypes: result})
+    } else {
+      closeParen.pos.fail("Expected end of Type parens")
+    }
+  } else {
+    parseTypeUnion(cursor)
+  }
+}
+
+private fun parseTypeUnion(cursor: TokenCursor): (TokenCursor, Type) = {
+  val (leftCursor, left) = parseTypeIntersection(cursor)
+  val (maybeOrCursor, maybeOr) = leftCursor.next()
+
+  return if (maybeOr is TokenSymbol && maybeOr.value == "|") {
+    val (rightCursor, right) = parseTypeUnion(maybeOrCursor)
+    (rightCursor, makeUnionType(left, right) )
+  } else {
+    (leftCursor, left)
+  }
+}
+
+private fun parseTypeIntersection(cursor: TokenCursor): (TokenCursor, Type) = {
+  val (leftCursor, left) = parseTypeFunction(cursor)
+  val (maybeOrCursor, maybeOr) = leftCursor.next()
+
+  return if (maybeOr is TokenSymbol && maybeOr.value == "&") {
+    val (rightCursor, right) = parseTypeIntersection(maybeOrCursor)
+    (rightCursor, makeIntersectionType(left, right))
+  } else {
+    (leftCursor, left)
+  }
+}
+
+private fun parseTypeFunction(cursor: TokenCursor): (TokenCursor, Type) = {
+  val maybeCurly = cursor.curr()
+
+  if (maybeCurly is TokenSymbol && maybeCurly.value == "{") {
+    val firstCursor = cursor.skip()
+    val maybeArrow = firstCursor.curr()
+
+    if (maybeArrow is TokenSymbol && maybeArrow.value == "->") {
+      return parseTypeFunctionResult(firstCursor.skip(), List.of())
+    }
+
+    val (nextCursor, parameters) = parseTypeList(firstCursor)
+    val (arrowCursor, arrow) = nextCursor.next()
+
+    if (arrow is TokenSymbol && arrow.value == "->") {
+      return parseTypeFunctionResult(arrowCursor, parameters)
+    } else {
+      arrow.pos.fail("Expected arrow in function type declaration")
+    }
+  } else {
+    return parseTypeGeneric(cursor)
+  }
+}
+
+private fun parseTypeFunctionResult(cursor: TokenCursor, parameters: List[Type]): (TokenCursor, Type) = {
+  val (nextCursor, resultType) = parseType(cursor)
+  val (finalCursor, closeBracket) = nextCursor.next()
+
+  if (closeBracket is TokenSymbol && closeBracket.value == "}") {
+    return (finalCursor, FunctionType{paramTypes: parameters, resultType, typeParams: List.of()})
+  } else {
+    closeBracket.pos.fail("Expected close of function type")
+  }
+}
+
+private fun parseTypeGeneric(cursor: TokenCursor): (TokenCursor, Type) = {
+  val (firstCursor, base) = parseTypeIdentifier(cursor)
+  val maybeBracket = firstCursor.curr()
+
+  return if (maybeBracket is TokenSymbol && maybeBracket.value == "[") {
+    val (nextCursor, parameters) = parseTypeList(firstCursor.skip())
+
+    if (parameters.isEmpty()) {
+      maybeBracket.pos.fail("Expected generic parameters")
+    }
+
+    val (finalCursor, closeBracket) = nextCursor.next()
+
+    if (closeBracket is TokenSymbol && closeBracket.value == "]") {
+      (finalCursor, GenericType{base, paramTypes: parameters})
+    } else {
+      closeBracket.pos.fail("Expected end of generic type declaration")
+    }
+  } else {
+    (firstCursor, base)
+  }
+}
+
+private fun parseTypeIdentifier(cursor: TokenCursor): (TokenCursor, Type) = {
+  val (finalCursor, token) = cursor.next()
+
+  if (token is TokenWord) {
+    return (finalCursor, NamedType{name: token.value})
+  } else {
+    token.pos.fail("Expected type")
+  }
+}
+
+private fun parseTypeList(cursor: TokenCursor): (TokenCursor, List[Type]) = {
+  val (nextCursor, head) = parseType(cursor)
+
+  return parseTypeListContinue(nextCursor, List.of(head))
+}
+
+private fun parseTypeListContinue(cursor: TokenCursor, init: List[Type]): (TokenCursor, List[Type]) = {
+  val maybeComma = cursor.curr()
+
+  if (maybeComma is TokenSymbol && maybeComma.value == ",") {
+    val (nextCursor, nextType) = parseType(cursor.skip())
+    return parseTypeListContinue(nextCursor, init.add(nextType))
+  } else {
+    return (cursor, init)
+  }
+}
+

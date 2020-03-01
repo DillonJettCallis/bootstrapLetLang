@@ -1,0 +1,78 @@
+atom CharType
+atom StringType
+atom IntType
+atom FloatType
+atom BooleanType
+atom AnyType
+atom NullType
+atom UnitType
+atom NothingType
+
+atom ListType
+atom MapType
+
+type PrimitiveType
+    = CharType
+    | StringType
+    | IntType
+    | FloatType
+    | BooleanType
+    | AnyType
+    | NullType
+    | UnitType
+    | NothingType
+    | ListType
+    | MapType
+
+data AtomType = { name: String }
+data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType] }
+data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType] }
+data FunctionType = { paramTypes: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
+data TupleType = { paramTypes: List[Type] }
+data GenericType = { base: Type, paramTypes: List[Type] }
+
+atom UnknownType
+
+data NamedType = { name: String }
+data PlaceholderType = { name: String }
+
+data UnionType = { paramTypes: List[Type] }
+data IntersectionType = { paramTypes: List[Type] }
+
+fun makeUnionType(left: Type , right: Type ): UnionType = {
+  val leftList = unwrapUnionType(left)
+  val rightList = unwrapUnionType(right)
+  UnionType{ paramTypes: leftList.concat(rightList) }
+}
+
+private fun unwrapUnionType(type: Type): List[Type] = if (type is UnionType) type.paramTypes else List.of(type)
+
+fun makeIntersectionType(left: Type, right: Type): IntersectionType = {
+  val leftList = unwrapIntersectionType(left)
+  val rightList = unwrapIntersectionType(right)
+  IntersectionTyp{ paramTypes: leftList.concat(rightList) }
+}
+
+private fun unwrapIntersectionType(type: Type): List[Type] = if (type is IntersectionType) type.paramTypes else List.of(type)
+
+type Type
+    = PrimitiveType
+    | AtomType
+    | DataType
+    | ProtocolType
+    | FunctionType
+    | TupleType
+    | GenericType
+    | UnknownType
+    | NamedType
+    | PlaceholderType
+    | UnionType
+    | IntersectionType
+
+fun listOfType(item: Type): GenericType = GenericType{ base: ListType, paramTypes: List.of(item) }
+
+val stringTemplateType = FunctionType {
+  paramTypes: List.of(listOfType(StringType), listOfType(AnyType)),
+  resultType: StringType
+}
+

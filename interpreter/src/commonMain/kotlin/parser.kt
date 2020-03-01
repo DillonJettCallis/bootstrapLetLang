@@ -1,10 +1,7 @@
 
 private data class TokenCursor(val tokens: List<Token>, val index: Int) {
   fun isEmpty(): Boolean = index + 1 >= tokens.size
-  fun isNotEmpty(): Boolean = !isEmpty()
   fun curr(): Token = tokens[index]
-  fun prev(): Token = tokens[index - 1]
-  fun peek(): Token = tokens[index + 1]
   fun skip(): TokenCursor = this.copy(index = index + 1)
   fun next(): Pair<TokenCursor, Token> {
     return skip() to curr()
@@ -547,10 +544,10 @@ private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 
   val maybeIs = leftCursor.curr()
 
-  return if (maybeIs is TokenWord && maybeIs.value == "is") {
+  return if (maybeIs is TokenWord && maybeIs.value in setOf("is", "isNot")) {
     val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
 
-    rightCursor to BinaryOpExp("is", left, right, UnknownType, maybeIs.pos)
+    rightCursor to BinaryOpExp(maybeIs.value, left, right, UnknownType, maybeIs.pos)
   } else {
     leftCursor to left
   }
@@ -888,7 +885,7 @@ private tailrec fun parseLambdaParameters(cursor: TokenCursor, init: List<Pair<S
     if (maybeEnd is TokenSymbol) {
       when (maybeEnd.value) {
         "->", "=>" -> return typeCursor to result
-        "," -> return parseLambdaParameters(typeCursor, result)
+        "," -> return parseLambdaParameters(typeCursor.skip(), result)
       }
     }
   }
@@ -926,10 +923,19 @@ private tailrec fun parseBlockStatement(cursor: TokenCursor, init: List<Statemen
 
   val (finalCursor, statement) = if (start is TokenWord) {
     when (start.value) {
+      "debugger" -> cursor.skip() to DebuggerStatement(start.pos)
       "val" -> parseAssignmentStatement(cursor.skip(), start.pos)
       "fun" -> parseFunctionStatement(cursor.skip(), start.pos)
       "type" -> parseTypeStatement(cursor.skip(), start.pos)
       "import" -> parseImportStatement(cursor.skip(), start.pos)
+      "return" -> {
+        val (returnCursor, returnEx) = parseExpression(cursor.skip())
+        returnCursor to ExpressionStatement(ReturnExp(returnEx, start.pos), start.pos)
+      }
+      "throw" -> {
+        val (returnCursor, throwEx) = parseExpression(cursor.skip())
+        returnCursor to ExpressionStatement(ThrowExp(throwEx, start.pos), start.pos)
+      }
       else -> {
         val (exCursor, ex) = parseExpression(cursor)
         exCursor to ExpressionStatement(ex, start.pos)
@@ -959,21 +965,6 @@ private fun parseStringTemplate(cursor: TokenCursor): Pair<TokenCursor, Expressi
   return leftCursor to left
 }
 
-private fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String? = null): Expression {
-  return when (val template = parseStringTemplate(raw, pos, prefix)) {
-    is StringTemplateString -> StringLiteralExp(template.raw, pos)
-    is StringTemplateChar -> CharLiteralExp(template.char, pos)
-    is StringTemplate -> CallExp(
-      func = IdentifierExp("@template", stringTemplateType, pos),
-      arguments = listOf(
-        ListLiteralExp(template.strings.map { StringLiteralExp(it, pos) }, listOfType(StringType), pos),
-        ListLiteralExp(template.values, listOfType(AnyType), pos)
-      ),
-      type = StringType,
-      pos = pos)
-  }
-}
-
 private fun parseTermExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
   val (finalCursor, token) = cursor.next()
 
@@ -996,15 +987,15 @@ private fun parseTermExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 
 // for testing only
 fun parseTypeTest(tokens: List<Token>): Type {
-  return parseTypeParens(TokenCursor(tokens, 0)).second
+  return parseTypeTuple(TokenCursor(tokens, 0)).second
 }
 
 
 private fun parseType(cursor: TokenCursor): Pair<TokenCursor, Type> {
-  return parseTypeParens(cursor)
+  return parseTypeTuple(cursor)
 }
 
-private fun parseTypeParens(cursor: TokenCursor): Pair<TokenCursor, Type> {
+private fun parseTypeTuple(cursor: TokenCursor): Pair<TokenCursor, Type> {
   val maybeParen = cursor.curr()
 
   return if (maybeParen is TokenSymbol && maybeParen.value == "(") {
@@ -1012,11 +1003,7 @@ private fun parseTypeParens(cursor: TokenCursor): Pair<TokenCursor, Type> {
     val (finalCursor, closeParen) = nextCursor.next()
 
     if (closeParen is TokenSymbol && closeParen.value == ")") {
-      if (result.size == 1) {
-        finalCursor to result.first()
-      } else {
-        finalCursor to TupleType(result)
-      }
+      finalCursor to TupleType(result)
     } else {
       closeParen.pos.fail("Expected end of Type parens")
     }

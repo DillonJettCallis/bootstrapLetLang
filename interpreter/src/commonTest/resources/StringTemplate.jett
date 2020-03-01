@@ -1,0 +1,117 @@
+import this/Ast.CallExp
+import this/Ast.IdentifierExp
+import this/Ast.ListLiteralExp
+import this/Ast.StringLiteralExp
+import this/Ast.CharLiteralExp
+
+import this/Ast.Expression
+
+import this/Parser.parseExpressionOnly
+
+import this/Lexer.StringCursor
+import this/Lexer.lexFragment
+import this/Lexer.munchWord
+
+import this/Type.StringType
+import this/Type.CharType
+import this/Type.AnyType
+import this/Type.UnknownType
+import this/Type.listOfType
+import this/Type.stringTemplateType
+
+
+data StringTemplateString = { raw: String }
+data StringTemplateChar = { char: Char }
+data StringTemplate = { strings: List[String], values: List[Expression] }
+
+private type StringTemplateResult
+  = StringTemplateString
+  | StringTemplateChar
+  | StringTemplate
+
+private fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String): Expression = {
+  val template = match (prefix) {
+    "raw" => StringTemplateString { raw }
+    "char" => {
+      val cursor = StringCursor{raw, index: 0, pos}
+      val (escapedCursor, escaped) = cursor.nextEscaped()
+
+      if (escapedCursor.isNotEmpty()) {
+        pos.fail("Expected char literal in char prefixed string")
+      } else {
+        StringTemplateChar{ char: escaped }
+      }
+    }
+    _ => munchStringBody(StringCursor{raw, index: 0, pos}, List.of(""), List.of())
+  }
+
+  return match (template) {
+    _ when template is StringTemplateString => StringLiteralExp{value: template.raw, type: StringType, pos}
+    _ when template is StringTemplateChar => CharLiteralExp{value: template.char, type: CharType, pos}
+    _ when template is StringTemplate => CallExp {
+        func: IdentifierExp{name: "@template", type: stringTemplateType, pos},
+        arguments: List.of(
+          ListLiteralExp{args: template.strings.map({ value => StringLiteralExp{value, pos} }), type: listOfType(StringType), pos},
+          ListLiteralExp{args: template.values, type: listOfType(AnyType), pos}
+        ),
+        type: StringType,
+        pos
+      }
+  }
+}
+
+private fun munchStringBody(cursor: StringCursor, initStrings: List[String], initValues: List[Expression]): StringTemplateResult = {
+  if (cursor.isEmpty()) {
+    if (initValues.isEmpty()) {
+      return StringTemplateString {raw: initStrings.last() }
+    } else {
+      return StringTemplate{strings: initStrings, values: initValues}
+    }
+  }
+
+  val maybeDollar = cursor.curr()
+
+  if (maybeDollar == char'\$') {
+    val nextCursor = cursor.skip()
+
+    if (nextCursor.isEmpty()) {
+      cursor.pos.fail("Cannot end a string with \$")
+    }
+
+    val maybeBracket = nextCursor.curr()
+
+    val (finalCursor, ex) = if (maybeBracket == char'{') {
+      val (bodyCursor, body) = blockBody(nextCursor.skip(), "", List.of(char'{'))
+
+      (bodyCursor, parseExpressionOnly(lexFragment(body, nextCursor.pos)))
+    } else {
+      val (wordCursor, word) = munchWord(nextCursor, "")
+
+      (wordCursor, IdentifierExp{name: word, type: UnknownType, pos: nextCursor.pos})
+    };
+
+    return munchStringBody(finalCursor, initStrings.add(""), initValues.add(ex))
+  } else {
+    val (nextCursor, nextChar) = cursor.nextEscaped()
+    val stringsInit = initStrings.init()
+    val working = initStrings.last()
+    val appendedString = working.append(nextChar.toString())
+    return munchStringBody(nextCursor, stringsInit.add(appendedString), initValues)
+  }
+}
+
+private val quotes = "'\"`"
+
+private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (StringCursor, String) = {
+  val (nextCursor, nextChar) = cursor.next()
+
+  match (nextChar) {
+    char'}' when inside.last() == char'{' && inside.size == 1 => return (nextCursor, init)
+    char'}' when inside.last() == char'{' && inside.size > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
+    char'{' when inside.last() == char'{' => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
+    _ when quotes.contains(nextChar) && inside.last() == nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
+    _ when quotes.contains(nextChar) && inside.last() != nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
+    _ => return blockBody(nextCursor, init.append(nextChar.toString()), inside)
+  }
+}
+

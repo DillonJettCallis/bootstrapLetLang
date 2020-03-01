@@ -56,6 +56,7 @@ data class TypeStatement(val name: String, val value: Type, override val pos: Po
 data class ImportStatement(val packageName: String, val modulePath: List<String>, override val pos: Position): Statement()
 data class DeconstructDataStatement(val base: Expression, val values: List<Pair<String, String>>, override val pos: Position): Statement()
 data class DeconstructTupleStatement(val base: Expression, val names: List<String>, override val pos: Position): Statement()
+data class DebuggerStatement(override val pos: Position): Statement()
 
 data class AtomDeclare(val name: String, override val access: AccessModifier, override val pos: Position): Declaration()
 data class DataDeclare(val name: String, val body: Map<String, Type>, override val access: AccessModifier, override val pos: Position): Declaration()

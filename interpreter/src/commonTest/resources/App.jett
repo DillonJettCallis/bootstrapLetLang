@@ -1,14 +1,17 @@
 import this/Lexer.lex
+import this/Parser.parse
+import this/Ast.AstModule
 
-fun main(args: List[String]): List[List[Token]] = {
-  val srcDir = File.from(args.get(0))
-  val files = srcDir.walkFiles()
-  val srcFiles = files.filter({ file => file.extension() == 'jett' })
+fun main(args: List[String]): List[AstModule] = {
+  val srcDir = File.from(args.get(0));
+  val files = srcDir.walkFiles();
+  val srcFiles = files.filter({ file => file.extension() == 'jett' });
 
   val lexedFiles = srcFiles.map({ next =>
     val raw = next.readText()
     lex(next.path(), raw)
-  })
+  });
 
-  lexedFiles.forEach({ tokens => println("Tokens: $tokens") })
+  val result = lexedFiles.map({ tokens => parse(tokens) });
+  return result;
 }

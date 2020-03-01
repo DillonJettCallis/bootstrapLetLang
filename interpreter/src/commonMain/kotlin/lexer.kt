@@ -1,14 +1,44 @@
+private val escapes = mapOf(
+  '\\' to '\\',
+  't' to '\t',
+  'r' to '\r',
+  'n' to '\n',
+  's' to ' ',
+  '$' to '$',
+  '\'' to '\'',
+  '"' to '"',
+  '`' to '`'
+)
+
 data class StringCursor(val raw: String, val index: Int, val pos: Position) {
 
-  fun isEmpty(): Boolean = index + 1 >= raw.length
+  fun isEmpty(): Boolean = index >= raw.length
   fun isNotEmpty(): Boolean = !isEmpty()
   fun curr(): Char = raw[index]
-  fun prev(): Char = raw[index - 1]
-  fun peek(): Char = raw[index + 1]
-  fun skip(): StringCursor = if (index == -1) this.copy(index = index + 1) else this.copy(index = index + 1, pos = pos.increment(curr()))
+  fun skip(): StringCursor = this.copy(index = index + 1, pos = pos.increment(curr()))
   fun next(): Pair<StringCursor, Char> {
-    val next = skip()
-    return next to next.curr()
+    return skip() to curr()
+  }
+  fun nextEscaped(): Pair<StringCursor, Char> {
+    val (nextCursor, firstChar) = this.next()
+
+    if (firstChar == '\\') {
+      if (nextCursor.isEmpty()) {
+        this.pos.fail("Cannot end string with escape char")
+      }
+
+      val (finalCursor, nextChar) = nextCursor.next()
+
+      val result = escapes[nextChar]
+
+      if (result == null) {
+        nextCursor.pos.fail("Invalid escape char")
+      } else {
+        return finalCursor to result
+      }
+    } else {
+      return nextCursor to firstChar
+    }
   }
 }
 
@@ -40,13 +70,13 @@ private const val singletonSymbols = "({[]}),;" // these symbols are always alon
 private const val mergedSymbols = "=<>!-+/*:.&|" // these symbols merge with one another to form compound symbols
 
 fun lex(src: String, raw: String): List<Token> {
-  val cursor = StringCursor( raw = raw, index = -1, pos = Position(line = 1, col = 1, src = src))
+  val cursor = StringCursor( raw = raw, index = 0, pos = Position(line = 1, col = 1, src = src))
 
   return muncher(cursor, listOf())
 }
 
 fun lexFragment(raw: String, pos: Position): List<Token> {
-  val cursor = StringCursor( raw = raw, index = -1, pos = pos)
+  val cursor = StringCursor( raw = raw, index = 0, pos = pos)
 
   return muncher(cursor, listOf())
 }
@@ -56,21 +86,12 @@ private tailrec fun muncher(src: StringCursor, result: List<Token>): List<Token>
     return result + TokenEOF(src.pos)
   }
 
-  val (nextCursor, nextChar) = try {
-    src.next()
-  } catch (e: Exception) {
-    val isEmpty = src.isEmpty()
-    val isNotEmpty = src.isNotEmpty()
-    val index = src.index
-    val size = src.raw.length
-    val posLine = src.pos.line
-    throw e
-  }
+  val (nextCursor, nextChar) = src.next()
 
   when {
     // checking for comments, both block and line
-    nextChar == '/' && nextCursor.isNotEmpty() && "/*".contains(nextCursor.peek()) -> {
-      return when (nextCursor.peek()) {
+    nextChar == '/' && nextCursor.isNotEmpty() && "/*".contains(nextCursor.curr()) -> {
+      return when (nextCursor.curr()) {
         '/' -> muncher(munchLineComment(nextCursor), result)
         '*' -> muncher(munchBlockComment(nextCursor).skip(), result)
         else -> throw Exception("Unexpected character $nextChar")
@@ -158,7 +179,7 @@ private fun munchLineComment(src: StringCursor): StringCursor {
 }
 
 private fun munchBlockComment(src: StringCursor): StringCursor {
-  return doUntil(src, { cur -> cur.skip() } , { it -> it.curr() == '*' && it.isNotEmpty() && it.peek() == '/' })
+  return doUntil(src, { cur -> cur.skip() } , { it -> it.curr() == '*' && it.isNotEmpty() && it.skip().curr() == '/' }).skip()
 }
 
 private tailrec fun <Item> doUntil(init: Item, action: (Item) -> Item, test: (Item) -> Boolean): Item =

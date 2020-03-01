@@ -7,36 +7,54 @@ data class StringTemplateChar(val char: Char): StringTemplateResult()
 data class StringTemplate(val strings: List<String>, val values: List<Expression>): StringTemplateResult()
 
 
-fun parseStringTemplate(raw: String, pos: Position, prefix: String? = null): StringTemplateResult {
-
-  return when (prefix) {
+fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String? = null): Expression {
+  val template = when (prefix) {
     "raw" -> StringTemplateString(raw)
     "char" -> {
-      val escaped = processEscapes(raw)
+      val (escapedCursor, escaped) = StringCursor(raw, 0, pos).nextEscaped()
 
-      if (escaped.length != 1) {
+      if (escapedCursor.isNotEmpty()) {
         pos.fail("Expected char literal in char prefixed string")
       } else {
-        StringTemplateChar(escaped.first())
+        StringTemplateChar(escaped)
       }
     }
-    else -> munchStringBody(StringCursor(raw, -1, pos), listOf(""), emptyList())
+    else -> munchStringBody(StringCursor(raw, 0, pos), listOf(""), emptyList())
+  }
+
+  return when (template) {
+    is StringTemplateString -> StringLiteralExp(template.raw, pos)
+    is StringTemplateChar -> CharLiteralExp(template.char, pos)
+    is StringTemplate -> CallExp(
+      func = IdentifierExp("@template", stringTemplateType, pos),
+      arguments = listOf(
+        ListLiteralExp(template.strings.map { StringLiteralExp(it, pos) }, listOfType(StringType), pos),
+        ListLiteralExp(template.values, listOfType(AnyType), pos)
+      ),
+      type = StringType,
+      pos = pos)
   }
 }
 
 private tailrec fun munchStringBody(cursor: StringCursor, initStrings: List<String>, initValues: List<Expression>): StringTemplateResult {
   if (cursor.isEmpty()) {
     return if (initValues.isEmpty()) {
-      StringTemplateString(processEscapes(initStrings.last()))
+      StringTemplateString(initStrings.last())
     } else {
-      StringTemplate(initStrings.map(::processEscapes), initValues)
+      StringTemplate(initStrings, initValues)
     }
   }
 
-  val (nextCursor, maybeDollar) = cursor.next()
+  val maybeDollar = cursor.curr()
 
   return if (maybeDollar == '$') {
-    val maybeBracket = nextCursor.peek()
+    val nextCursor = cursor.skip()
+
+    if (nextCursor.isEmpty()) {
+      cursor.pos.fail("Cannot end a string with $")
+    }
+
+    val maybeBracket = nextCursor.curr()
 
     val (finalCursor, ex) = if (maybeBracket == '{') {
       val (bodyCursor, body) = blockBody(nextCursor.skip(), init = "", inside = listOf('{'))
@@ -50,7 +68,9 @@ private tailrec fun munchStringBody(cursor: StringCursor, initStrings: List<Stri
 
     munchStringBody(finalCursor, initStrings + "", initValues + ex)
   } else {
-    munchStringBody(nextCursor, initStrings.dropLast(1) + (initStrings.last() + maybeDollar), initValues)
+    val (nextCursor, nextChar) = cursor.nextEscaped()
+
+    munchStringBody(nextCursor, initStrings.dropLast(1) + (initStrings.last() + nextChar), initValues)
   }
 }
 
@@ -67,17 +87,4 @@ private tailrec fun blockBody(cursor: StringCursor, init: String, inside: List<C
     nextChar in quotes && inside.last() != nextChar -> blockBody(nextCursor, init + nextChar, inside + nextChar)
     else -> blockBody(nextCursor, init + nextChar, inside)
   }
-}
-
-private val escapes = listOf(
-  "\\t" to "\t",
-  "\\r" to "\r",
-  "\\n" to "\n",
-  "\\s" to " ",
-  "\\$" to "$",
-  "\\\\" to "\\"
-)
-
-private fun processEscapes(raw: String): String {
-  return escapes.fold(raw) { prev, (src, dest) -> prev.replace(src, dest) }
 }

@@ -15,8 +15,9 @@ object NothingType: PrimitiveType()
 
 object ListType: PrimitiveType()
 
-data class DataType(val fields: Map<String, Type>, val typeParams: List<PlaceholderType> = emptyList()): Type()
-data class ProtocolType(val functions: Map<String, Type>, val typeParams: List<PlaceholderType> = emptyList()): Type()
+data class AtomType(val name: String): Type()
+data class DataType(val name: String, val fields: Map<String, Type>, val typeParams: List<PlaceholderType> = emptyList()): Type()
+data class ProtocolType(val name: String, val functions: Map<String, Type>, val typeParams: List<PlaceholderType> = emptyList()): Type()
 data class FunctionType(val paramTypes: List<Type>, val resultType: Type, val typeParams: List<PlaceholderType> = emptyList()): Type()
 data class TupleType(val paramTypes: List<Type>): Type()
 data class GenericType(val base: Type, val paramTypes: List<Type>): Type()

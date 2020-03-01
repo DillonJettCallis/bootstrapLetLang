@@ -1,0 +1,97 @@
+import this/Lexer.Position
+import this/Type.Type
+import this/Type.BooleanType
+import this/Type.FloatType
+import this/Type.StringType
+import this/Type.CharType
+
+atom Public
+atom Protected
+atom Internal
+atom Private
+
+type AccessModifier = Public | Protected | Internal | Private
+
+type Expression
+    = NullLiteralExp
+    | BooleanLiteralExp
+    | NumberLiteralExp
+    | StringLiteralExp
+    | ListLiteralExp
+    | CharLiteralExp
+    | IdentifierExp
+    | BinaryOpExp
+    | UnaryOpExp
+    | BlockExp
+    | CallExp
+    | LambdaExp
+    | IfExp
+    | ReturnExp
+    | ThrowExp
+    | ConstructExp
+    | ConstructTupleExp
+    | MatchExp
+
+type Statement
+    = ExpressionStatement
+    | AssignmentStatement
+    | FunctionStatement
+    | TypeStatement
+    | ImportStatement
+    | DeconstructDataStatement
+    | DeconstructTupleStatement
+    | DebuggerStatement
+
+type Declaration
+    = AtomDeclare
+    | DataDeclare
+    | TypeDeclare
+    | FunctionDeclare
+    | ImportDeclare
+    | ConstantDeclare
+    | ProtocolDeclare
+    | ImplDeclare
+
+data NullLiteralExp = { pos: Position, type: Type }
+data BooleanLiteralExp = { value: Boolean, pos: Position, type: BooleanType }
+data NumberLiteralExp = { value: String, pos: Position, type: FloatType }
+data StringLiteralExp = { value: String, pos: Position, type: StringType }
+data ListLiteralExp = { args: List[Expression], pos: Position, type: Type }
+data CharLiteralExp = { value: Char, pos: Position, type: CharType }
+data IdentifierExp = { name: String, pos: Position, type: Type }
+data BinaryOpExp = { op: String, left: Expression, right: Expression, pos: Position, type: Type }
+data UnaryOpExp = { op: String, ex: Expression, pos: Position, type: Type }
+data BlockExp = { body: List[Statement], pos: Position, type: Type }
+data CallExp = { func: Expression, arguments: List[Expression], pos: Position, type: Type }
+data LambdaExp = { args: List[String], body: Expression, pos: Position, type: FunctionType }
+data IfExp = { condition: Expression, thenExp: Expression, elseExp: Expression, pos: Position, type: Type }
+data ReturnExp = { ex: Expression, pos: Position, type: NothingType }
+data ThrowExp = { ex: Expression, pos: Position, type: NothingType }
+data ConstructExp = { base: Expression, values: List[(String, Expression)], pos: Position, type: Type }
+data ConstructTupleExp = { values: List[Expression], pos: Position, type: Type }
+data MatchExp = { base: Expression, patterns: List[MatchPattern], type: Type, pos: Position }
+
+data MatchPattern = { base: Expression, guard: Expression, body: Expression, pos: Position }
+
+data ExpressionStatement = { ex: Expression, pos: Position }
+data AssignmentStatement = { name: String, body: Expression, pos: Position }
+data FunctionStatement = { name: String, body: LambdaExp, pos: Position }
+data TypeStatement = { name: String, value: Type, pos: Position }
+data ImportStatement = { packageName: String, modulePath: List[String], pos: Position }
+data DeconstructDataStatement = { base: Expression, values: List[(String, String)], pos: Position }
+data DeconstructTupleStatement = { base: Expression, names: List[String], pos: Position }
+data DebuggerStatement = { pos: Position }
+
+
+data AtomDeclare = { name: String, access: AccessModifier, pos: Position }
+data DataDeclare = { name: String, body: Map[String, Type], access: AccessModifier, pos: Position }
+data TypeDeclare = { type: TypeStatement, access: AccessModifier, pos: Position }
+data FunctionDeclare = { func: FunctionStatement, access: AccessModifier, pos: Position }
+data ImportDeclare = { import: ImportStatement, access: AccessModifier, pos: Position }
+data ConstantDeclare = { assign: AssignmentStatement, access: AccessModifier, pos: Position }
+data ProtocolDeclare = { name: String, funcs: List[(String, Type)], access: AccessModifier, pos: Position }
+data ImplDeclare = { base: Type, proto: Type, funcs: List[FunctionDeclare], access: AccessModifier, pos: Position }
+
+data AstModule = { declarations: List[Declaration] }
+
+data AstPackage = { modules: Map[List[String], AstModule] }
