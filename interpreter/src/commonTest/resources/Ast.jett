@@ -1,9 +1,9 @@
-import this/Lexer.Position
-import this/Type.Type
-import this/Type.BooleanType
-import this/Type.FloatType
-import this/Type.StringType
-import this/Type.CharType
+import self/Lexer.Position
+import self/Type.Type
+import self/Type.BooleanType
+import self/Type.FloatType
+import self/Type.StringType
+import self/Type.CharType
 
 atom Public
 atom Protected
@@ -63,7 +63,7 @@ data BinaryOpExp = { op: String, left: Expression, right: Expression, pos: Posit
 data UnaryOpExp = { op: String, ex: Expression, pos: Position, type: Type }
 data BlockExp = { body: List[Statement], pos: Position, type: Type }
 data CallExp = { func: Expression, arguments: List[Expression], pos: Position, type: Type }
-data LambdaExp = { args: List[String], body: Expression, pos: Position, type: FunctionType }
+data LambdaExp = { args: List[String], body: Expression, pos: Position, type: Type }
 data IfExp = { condition: Expression, thenExp: Expression, elseExp: Expression, pos: Position, type: Type }
 data ReturnExp = { ex: Expression, pos: Position, type: NothingType }
 data ThrowExp = { ex: Expression, pos: Position, type: NothingType }

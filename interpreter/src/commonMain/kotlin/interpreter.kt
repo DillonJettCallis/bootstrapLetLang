@@ -351,10 +351,10 @@ private fun Any?.wrap(): JValue {
   } else {
     val clazz = when (this) {
       is JObject -> return this
-      is String -> return JObject(mapOf("@src" to this, "size" to this.length), jString)
+      is String -> jString
       is Char -> jChar
       is Exception -> jError
-      is List<*> -> return JObject(mapOf("@src" to this, "size" to this.size), jList)
+      is List<*> -> jList
       is Set<*> -> jSet
       is Map<*, *> -> jMap
       is FileImpl -> jFile
@@ -368,6 +368,9 @@ private fun Any?.wrap(): JValue {
 private val jError = JClass("Error", emptyMap(), mapOf("new" to JFunction { Exception( it[1].unwrap<String>()).wrap() }))
 
 private val jString = JClass("String", mapOf(
+    "size" to JFunction {
+      it[0].unwrap<String>().length.wrap()
+    },
     "getCharAt" to JFunction {
       val (rawStr, rawIndex) = it
       val str = rawStr.unwrap<String>()
@@ -417,6 +420,9 @@ private val jList = JClass(
     "of" to JFunction { it.drop(1).wrap() }
   ),
   instanceMethods = mapOf(
+    "size" to JFunction {
+      it[0].unwrap<List<JValue>>().size.wrap()
+    },
     "add" to JFunction {
       val (rawList, rawNew) = it
       val list = rawList.unwrap<List<JValue>>()
@@ -448,6 +454,19 @@ private val jList = JClass(
     "init" to JFunction {
       it[0].unwrap<List<JValue>>().dropLast(1).wrap()
     },
+    "join" to JFunction { args ->
+      val list = args[0].unwrap<List<JValue>>()
+      val sep = args[1].unwrap<String>()
+
+      list.joinToString(separator = sep).wrap()
+    },
+    "joinWith" to JFunction { args ->
+      val list = args[0].unwrap<List<JValue>>()
+      val sep = args[1].unwrap<String>()
+      val mapper = args[2] as JFunction
+
+      list.joinToString(separator = sep) { mapper(listOf(it)).unwrap<String>() }.wrap()
+    },
     "isEmpty" to JFunction {
       it[0].unwrap<List<JValue>>().isEmpty().wrap()
     },
@@ -456,6 +475,12 @@ private val jList = JClass(
       val self = rawSelf.unwrap<List<JValue>>()
       val other = rawOther.unwrap<List<JValue>>()
       (self + other).wrap()
+    },
+    "zip" to JFunction { args ->
+      val left = args[0].unwrap<List<JValue>>()
+      val right = args[0].unwrap<List<JValue>>()
+
+      left.zip(right) { l, r -> listOf(l, r).wrap() }.wrap()
     },
     "filter" to JFunction {
       val (rawList, rawFunc) = it
@@ -484,6 +509,24 @@ private val jList = JClass(
 
       list.fold(rawInit) { sum, next -> func(listOf(sum, next)) }
     },
+    "all" to JFunction { args ->
+      val list = args[0].unwrap<List<JValue>>()
+      val func = args[1] as JFunction
+
+      list.all { func(listOf(it)).unwrap<Boolean>() }.wrap()
+    },
+    "none" to JFunction { args ->
+      val list = args[0].unwrap<List<JValue>>()
+      val func = args[1] as JFunction
+
+      list.none { func(listOf(it)).unwrap<Boolean>() }.wrap()
+    },
+    "any" to JFunction { args ->
+      val list = args[0].unwrap<List<JValue>>()
+      val func = args[1] as JFunction
+
+      list.any { func(listOf(it)).unwrap<Boolean>() }.wrap()
+    },
     "forEach" to JFunction {
       val (rawList, rawFunc) = it
       val list = rawList.unwrap<List<JValue>>()
@@ -506,6 +549,9 @@ private val jSet = JClass(
     }
   ),
   instanceMethods = mapOf(
+    "size" to JFunction {
+      it[0].unwrap<Set<JValue>>().size.wrap()
+    },
     "contains" to JFunction {
       val (rawSet, rawValue) = it
       val set = rawSet.unwrap<Set<JValue>>()
@@ -525,6 +571,9 @@ private val jMap = JClass(
     }
   ),
   instanceMethods = mapOf(
+    "size" to JFunction {
+      it[0].unwrap<Map<JValue, JValue>>().size.wrap()
+    },
     "set" to JFunction { args ->
       val (rawMap, rawKey, rawValue) = args
       val map = rawMap.unwrap<Map<JValue, JValue>>()
@@ -539,6 +588,15 @@ private val jMap = JClass(
       val (rawMap, rawKey) = args
       val map = rawMap.unwrap<Map<JValue, JValue>>()
       map.containsKey(rawKey).wrap()
+    },
+    "keys" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().keys.wrap()
+    },
+    "values" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().values.toList().wrap()
+    },
+    "entries" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().entries.mapTo(ArrayList()){ (left, right) -> listOf(left, right) }.wrap()
     }
   )
 )

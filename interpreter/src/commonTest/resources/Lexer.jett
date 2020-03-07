@@ -13,44 +13,42 @@ private val escapes = Map.of()
 
 data StringCursor = { raw: String, index: Int, pos: Position }
 
-implement StringCursor {
 
-  fun isEmpty(): Boolean = this.index >= this.raw.size
-  fun isNotEmpty(): Boolean = !this.isEmpty()
-  fun curr(): Char = this.raw.getCharAt(this.index)
-  fun skip(): StringCursor = this{index: this.index + 1, pos: this.pos.increment(this.curr())}
-  fun next(): (StringCursor, Char) = {
-    (this.skip(), this.curr())
-  }
-  fun nextEscaped(): (StringCursor, Char) = {
-    val (nextCursor, firstChar) = this.next()
+fun StringCursor.isEmpty(self): Boolean = self.index >= self.raw.size()
+fun StringCursor.isNotEmpty(self): Boolean = !self.isEmpty()
+fun StringCursor.curr(self): Char = self.raw.getCharAt(self.index)
+fun StringCursor.skip(self): StringCursor = self{index: self.index + 1, pos: self.pos.increment(self.curr())}
+fun StringCursor.next(self): (StringCursor, Char) = {
+  (self.skip(), self.curr())
+}
+fun StringCursor.nextEscaped(self): (StringCursor, Char) = {
+  val (nextCursor, firstChar) = self.next()
 
-    if (firstChar == char'\\') {
-      if (nextCursor.isEmpty()) {
-        this.pos.fail("Cannot end string with escape char")
-      }
-
-      val (finalCursor, nextChar) = nextCursor.next()
-
-      val result = escapes.get(nextChar)
-
-      if (result == null) {
-        nextCursor.pos.fail("Invalid escape char")
-      } else {
-        return (finalCursor, result)
-      }
-    } else {
-      return (nextCursor, firstChar)
+  if (firstChar == char'\\') {
+    if (nextCursor.isEmpty()) {
+      self.pos.fail("Cannot end string with escape char")
     }
+
+    val (finalCursor, nextChar) = nextCursor.next()
+
+    val result = escapes.get(nextChar)
+
+    if (result == null) {
+      nextCursor.pos.fail("Invalid escape char")
+    } else {
+      return (finalCursor, result)
+    }
+  } else {
+    return (nextCursor, firstChar)
   }
 }
+
 
 data Position = { line: Int, col: Int, src: String }
 
-implement Position {
-  fun increment(next: Char): Position = if (next == char'\n') this{line: this.line + 1, col: 0} else this{col: this.col + 1}
-  fun fail(message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
-}
+fun Position.increment(self, next: Char): Position = if (next == char'\n') self{line: self.line + 1, col: 0} else self{col: self.col + 1}
+fun Position.fail(self, message: String): Nothing = throw Error.new("$message at ${self.line}:${self.col} in ${self.src}")
+
 
 data TokenWord = { value: String, pos: Position }
 data TokenSymbol = { value: String, pos: Position }

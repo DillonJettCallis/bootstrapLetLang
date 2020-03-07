@@ -1,0 +1,72 @@
+import self/Type.parseType;
+
+val charType = primitiveType('Char')
+val intType = primitiveType('Int')
+val floatType = primitiveType('Float')
+val booleanType = primitiveType('Boolean')
+val anyType = primitiveType('Any')
+val unitType = primitiveType('Unit')
+val nothingType = primitiveType('Nothing')
+
+val errorType = primitiveType('Error')
+val stringType = primitiveType('String')
+
+val itemParam = PlaceholderType { name: 'Item' }
+val keyParam = PlaceholderType { name: 'Key' }
+val valueParam = PlaceholderType { name: 'Value' }
+
+val listType =  DataType { name: 'List', fields: Map.of(), typeParams: List.of(itemParam) }
+val setType = DataType { name: 'Set', fields: Map.of(), typeParams: List.of(itemParam) }
+val mapType = DataType { name: 'Map', fields: Map.of(), typeParams: List.of(keyParam, valueParam) }
+
+val builtinScope = Scope {
+  values: Map.of(
+    ('Char', charType),
+    ('Int', intType),
+    ('Float', floatType),
+    ('Boolean', booleanType),
+    ('Boolean', anyType),
+    ('Unit', unitType),
+    ('Nothing', nothingType),
+    ('Error', errorType),
+
+    ('String', stringType),
+    ('List', listType),
+    ('Set', setType),
+    ('Map', mapType),
+
+    ('Char.toString', parseType(" { Char -> String } ") ),
+
+    // parseType("{  ->  }")
+
+    ('String.size', parseType(" { String -> Int } ") ),
+    ('String.getCharAt', parseType(" { String, Int -> Char } ") ),
+    ('String.toUpperCase', parseType("{ String -> String }") ),
+    ('String.append', parseType("{ String, String -> String }") ),
+    ('String.contains', parseType("{ String, Char -> Boolean }") ),
+    ('String.replace', parseType("{ String, String -> String }") ),
+    ('String.toString', parseType("{ String -> String }") ),
+
+    ('List.size', parseType("{ List[Item] -> Int }") ),
+    ('List.add', FunctionType { paramTypes: List.of(genericList, itemParam), resultType: genericList, typeParams: listOfItem },
+    ('List.prepend', FunctionType { paramTypes: List.of(genericList, itemParam), resultType: genericList, typeParams: listOfItem },
+    ('List.get', FunctionType { paramTypes: List.of(genericList, intType), resultType: itemParam, typeParams: listOfItem },
+    ('List.head', FunctionType { paramTypes: List.of(genericList), resultType: itemParam, typeParams: listOfItem },
+    ('List.last', FunctionType { paramTypes: List.of(genericList), resultType: itemParam, typeParams: listOfItem },
+    ('List.tail', FunctionType { paramTypes: List.of(genericList), resultType: genericList, typeParams: listOfItem },
+    ('List.init', FunctionType { paramTypes: List.of(genericList), resultType: genericList, typeParams: listOfItem },
+    ('List.join', FunctionType { paramTypes: List.of(genericList, stringType), resultType: stringType, typeParams: listOfItem },
+    ('List.joinWith', FunctionType { paramTypes: List.of(genericList, stringType, functionType(List.of(itemParam), stringType) ), resultType: stringType, typeParams: listOfItem },
+    ('List.isEmpty', FunctionType { paramTypes: List.of(genericList), resultType: booleanType, typeParams: listOfItem },
+    ('List.concat', FunctionType { paramTypes: List.of(genericList, genericList), resultType: genericList, typeParams: listOfItem },
+    ('List.zip', FunctionType { paramTypes: List.of(genericList, genericList), resultType: generic(listType, List.of( tuple( itemParam, itemParam ) )), typeParams: listOfItem },
+    ('List.filter', FunctionType { paramTypes: List.of(genericList, ), resultType: intType, typeParams: listOfItem },
+  ),
+  parent: null
+}
+
+
+
+
+
+

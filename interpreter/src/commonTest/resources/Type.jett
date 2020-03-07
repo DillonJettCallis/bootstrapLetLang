@@ -4,7 +4,6 @@ atom IntType
 atom FloatType
 atom BooleanType
 atom AnyType
-atom NullType
 atom UnitType
 atom NothingType
 
@@ -18,7 +17,6 @@ type PrimitiveType
     | FloatType
     | BooleanType
     | AnyType
-    | NullType
     | UnitType
     | NothingType
     | ListType
@@ -28,6 +26,7 @@ data AtomType = { name: String }
 data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType] }
 data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType] }
 data FunctionType = { paramTypes: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
+data ExtensionFunctionType = { base: Type, static: Boolean, func: FunctionType }
 data TupleType = { paramTypes: List[Type] }
 data GenericType = { base: Type, paramTypes: List[Type] }
 
@@ -36,10 +35,13 @@ atom UnknownType
 data NamedType = { name: String }
 data PlaceholderType = { name: String }
 
+// Used internally in the checker to resolve recursive types
+data LookupType = { id: Int }
+
 data UnionType = { paramTypes: List[Type] }
 data IntersectionType = { paramTypes: List[Type] }
 
-fun makeUnionType(left: Type , right: Type ): UnionType = {
+fun UnionType.of(left: Type , right: Type ): UnionType = {
   val leftList = unwrapUnionType(left)
   val rightList = unwrapUnionType(right)
   UnionType{ paramTypes: leftList.concat(rightList) }
@@ -47,10 +49,10 @@ fun makeUnionType(left: Type , right: Type ): UnionType = {
 
 private fun unwrapUnionType(type: Type): List[Type] = if (type is UnionType) type.paramTypes else List.of(type)
 
-fun makeIntersectionType(left: Type, right: Type): IntersectionType = {
+fun IntersectionType.of(left: Type, right: Type): IntersectionType = {
   val leftList = unwrapIntersectionType(left)
   val rightList = unwrapIntersectionType(right)
-  IntersectionTyp{ paramTypes: leftList.concat(rightList) }
+  IntersectionType{ paramTypes: leftList.concat(rightList) }
 }
 
 private fun unwrapIntersectionType(type: Type): List[Type] = if (type is IntersectionType) type.paramTypes else List.of(type)
@@ -68,6 +70,15 @@ type Type
     | PlaceholderType
     | UnionType
     | IntersectionType
+    | LookupType
+
+fun parseType(raw: String): Type = {
+  import self/Lexer.lex;
+  import self/Parser.parseType;
+
+  val (cursor, result) = parseType(lex('', raw));
+  return result;
+}
 
 fun listOfType(item: Type): GenericType = GenericType{ base: ListType, paramTypes: List.of(item) }
 

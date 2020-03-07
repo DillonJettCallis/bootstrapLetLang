@@ -1,98 +1,93 @@
-import this/Lexer.Token
-import this/Lexer.TokenWord
-import this/Lexer.TokenSymbol
-import this/Lexer.TokenString
-import this/Lexer.TokenNumber
+import self/Lexer.Token
+import self/Lexer.TokenWord
+import self/Lexer.TokenSymbol
+import self/Lexer.TokenString
+import self/Lexer.TokenNumber
 
-import this/Ast.AccessModifier
-import this/Ast.Public
-import this/Ast.Protected
-import this/Ast.Internal
-import this/Ast.Private
+import self/Ast.AccessModifier
+import self/Ast.Public
+import self/Ast.Protected
+import self/Ast.Internal
+import self/Ast.Private
 
-import this/Ast.NullLiteralExp
-import this/Ast.BooleanLiteralExp
-import this/Ast.NumberLiteralExp
-import this/Ast.StringLiteralExp
-import this/Ast.ListLiteralExp
-import this/Ast.CharLiteralExp
-import this/Ast.IdentifierExp
-import this/Ast.BinaryOpExp
-import this/Ast.UnaryOpExp
-import this/Ast.BlockExp
-import this/Ast.CallExp
-import this/Ast.LambdaExp
-import this/Ast.IfExp
-import this/Ast.ReturnExp
-import this/Ast.ThrowExp
-import this/Ast.ConstructExp
-import this/Ast.ConstructTupleExp
-import this/Ast.MatchExp
-import this/Ast.Expression
-import this/Ast.Statement
-import this/Ast.ExpressionStatement
-import this/Ast.AssignmentStatement
-import this/Ast.FunctionStatement
-import this/Ast.TypeStatement
-import this/Ast.ImportStatement
-import this/Ast.DeconstructDataStatement
-import this/Ast.DeconstructTupleStatement
-import this/Ast.DebuggerStatement
-import this/Ast.Declaration
-import this/Ast.AtomDeclare
-import this/Ast.DataDeclare
-import this/Ast.TypeDeclare
-import this/Ast.FunctionDeclare
-import this/Ast.ImportDeclare
-import this/Ast.ConstantDeclare
-import this/Ast.ProtocolDeclare
-import this/Ast.ImplDeclare
-import this/Ast.MatchPattern
-import this/Ast.AstModule
-import this/Ast.AstPackage
+import self/Ast.NullLiteralExp
+import self/Ast.BooleanLiteralExp
+import self/Ast.NumberLiteralExp
+import self/Ast.StringLiteralExp
+import self/Ast.ListLiteralExp
+import self/Ast.CharLiteralExp
+import self/Ast.IdentifierExp
+import self/Ast.BinaryOpExp
+import self/Ast.UnaryOpExp
+import self/Ast.BlockExp
+import self/Ast.CallExp
+import self/Ast.LambdaExp
+import self/Ast.IfExp
+import self/Ast.ReturnExp
+import self/Ast.ThrowExp
+import self/Ast.ConstructExp
+import self/Ast.ConstructTupleExp
+import self/Ast.MatchExp
+import self/Ast.Expression
+import self/Ast.Statement
+import self/Ast.ExpressionStatement
+import self/Ast.AssignmentStatement
+import self/Ast.FunctionStatement
+import self/Ast.TypeStatement
+import self/Ast.ImportStatement
+import self/Ast.DeconstructDataStatement
+import self/Ast.DeconstructTupleStatement
+import self/Ast.DebuggerStatement
+import self/Ast.Declaration
+import self/Ast.AtomDeclare
+import self/Ast.DataDeclare
+import self/Ast.TypeDeclare
+import self/Ast.FunctionDeclare
+import self/Ast.ImportDeclare
+import self/Ast.ConstantDeclare
+import self/Ast.ProtocolDeclare
+import self/Ast.ImplDeclare
+import self/Ast.MatchPattern
+import self/Ast.AstModule
+import self/Ast.AstPackage
 
-import this/StringTemplate.parseStringTemplateWithPrefix
+import self/StringTemplate.parseStringTemplateWithPrefix
 
-import this/Type.PrimitiveType
-import this/Type.AtomType
-import this/Type.DataType
-import this/Type.ProtocolType
-import this/Type.FunctionType
-import this/Type.TupleType
-import this/Type.GenericType
-import this/Type.UnknownType
-import this/Type.NamedType
-import this/Type.PlaceholderType
-import this/Type.UnionType
-import this/Type.IntersectionType
-import this/Type.CharType
-import this/Type.StringType
-import this/Type.IntType
-import this/Type.FloatType
-import this/Type.BooleanType
-import this/Type.AnyType
-import this/Type.NullType
-import this/Type.UnitType
-import this/Type.NothingType
-import this/Type.ListType
-import this/Type.MapType
-import this/Type.Type
-import this/Type.makeUnionType
-import this/Type.makeIntersectionType
-import this/Type.listOfType
-import this/Type.stringTemplateType
+import self/Type.PrimitiveType
+import self/Type.AtomType
+import self/Type.DataType
+import self/Type.ProtocolType
+import self/Type.FunctionType
+import self/Type.TupleType
+import self/Type.GenericType
+import self/Type.UnknownType
+import self/Type.NamedType
+import self/Type.PlaceholderType
+import self/Type.UnionType
+import self/Type.IntersectionType
+import self/Type.CharType
+import self/Type.StringType
+import self/Type.IntType
+import self/Type.FloatType
+import self/Type.BooleanType
+import self/Type.AnyType
+import self/Type.NullType
+import self/Type.UnitType
+import self/Type.NothingType
+import self/Type.ListType
+import self/Type.MapType
+import self/Type.Type
+import self/Type.listOfType
+import self/Type.stringTemplateType
 
 
 private data TokenCursor = { tokens: List[Token], index: Int }
 
-implement TokenCursor {
+fun TokenCursor.isEmpty(self): Boolean = self.index + 1 >= self.tokens.size()
+fun TokenCursor.curr(self): Token = self.tokens.get(self.index)
+fun TokenCursor.skip(self): TokenCursor = self{index: self.index + 1}
+fun TokenCursor.next(self): (TokenCursor, Token) = (self.skip(), self.curr())
 
-  fun isEmpty(): Boolean = this.index + 1 >= this.tokens.size
-  fun curr(): Token = this.tokens.get(this.index)
-  fun skip(): TokenCursor = this{index: this.index + 1}
-  fun next(): (TokenCursor, Token) = (this.skip(), this.curr())
-
-}
 
 fun parse(tokens: List[Token]): AstModule = {
   val cursor = TokenCursor{ tokens, index: 0 }
@@ -356,7 +351,7 @@ private fun parseImplBody(cursor: TokenCursor, base: Type, init: List[FunctionDe
     func {
       func: func.func {
         body: func.func.body {
-          args: func.func.body.args.prepend("this"),
+          args: func.func.body.args.prepend("self"),
           type: func.func.body.type {
             paramTypes: func.func.body.type.paramTypes.prepend(base)
           }
@@ -535,7 +530,7 @@ private fun parseDestructureDataPatterns(cursor: TokenCursor, init: List[(String
     (firstCursor, name)
   }
 
-  val result = init.set(baseName, name)
+  val result = init.add( (baseName, name) )
 
   val (endCursor, maybeEnd) = baseCursor.next()
 
@@ -725,7 +720,7 @@ private fun parseThrowExp(cursor: TokenCursor): (TokenCursor, Expression) = {
 }
 
 private fun parseBinaryExp(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val start = parseAccessExp
+  val start = parseIsExp
   val prod = parseBinaryExpSet(Set.of("*", "/"), start)
   val sum = parseBinaryExpSet(Set.of("+", "-"), prod)
   val compare = parseBinaryExpSet(Set.of(">", ">=", "<", "<="), sum)
@@ -753,6 +748,23 @@ private fun parseBinaryExpSet(ops: Set[String], next: {TokenCursor -> (TokenCurs
 
     rec(leftCursor, left)
   }
+}
+
+private val isKeywords = Set.of("is", "isNot")
+
+private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (leftCursor, left) = parseAccessExp(cursor)
+
+  val maybeIs = leftCursor.curr()
+
+  if (maybeIs is TokenWord && isKeywords.contains(maybeIs.value)) {
+    val (rightCursor, right) = parseAccessExp(leftCursor.skip())
+
+    return (rightCursor, BinaryOpExp{op: maybeIs.value, left, right, type: UnknownType, pos: maybeIs.pos})
+  } else {
+    return (leftCursor, left)
+  }
+
 }
 
 private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
@@ -843,7 +855,7 @@ private fun parseCallArguments(cursor: TokenCursor, init: List[Expression]): (To
 }
 
 private fun parseConstruct(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val (baseCursor, base) = parseIsExp(cursor)
+  val (baseCursor, base) = parseUnaryExp(cursor)
 
   val (maybeBracketCursor, maybeBracket) = baseCursor.next()
 
@@ -892,23 +904,6 @@ private fun parseConstructArgs(cursor: TokenCursor, init: List[(String, Expressi
   } else {
     maybeEnd.pos.fail("Expected end of construct")
   }
-}
-
-private val isKeywords = Set.of("is", "isNot")
-
-private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val (leftCursor, left) = parseUnaryExp(cursor)
-
-  val maybeIs = leftCursor.curr()
-
-  if (maybeIs is TokenWord && isKeywords.contains(maybeIs.value)) {
-    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
-
-    return (rightCursor, BinaryOpExp{op: maybeIs.value, left, right, type: UnknownType, pos: maybeIs.pos})
-  } else {
-    return (leftCursor, left)
-  }
-
 }
 
 private val unaryOps = Set.of("-", "!")
@@ -1135,7 +1130,7 @@ private fun parseTermExp(cursor: TokenCursor): (TokenCursor, Expression) = {
   return (finalCursor, ex)
 }
 
-private fun parseType(cursor: TokenCursor): (TokenCursor, Type) = {
+fun parseType(cursor: TokenCursor): (TokenCursor, Type) = {
   return parseTypeTuple(cursor)
 }
 
@@ -1163,7 +1158,7 @@ private fun parseTypeUnion(cursor: TokenCursor): (TokenCursor, Type) = {
 
   return if (maybeOr is TokenSymbol && maybeOr.value == "|") {
     val (rightCursor, right) = parseTypeUnion(maybeOrCursor)
-    (rightCursor, makeUnionType(left, right) )
+    (rightCursor, UnionType.of(left, right) )
   } else {
     (leftCursor, left)
   }
@@ -1175,7 +1170,7 @@ private fun parseTypeIntersection(cursor: TokenCursor): (TokenCursor, Type) = {
 
   return if (maybeOr is TokenSymbol && maybeOr.value == "&") {
     val (rightCursor, right) = parseTypeIntersection(maybeOrCursor)
-    (rightCursor, makeIntersectionType(left, right))
+    (rightCursor, IntersectionType.of(left, right))
   } else {
     (leftCursor, left)
   }

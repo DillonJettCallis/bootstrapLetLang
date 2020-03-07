@@ -106,8 +106,8 @@ private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (
   val (nextCursor, nextChar) = cursor.next()
 
   match (nextChar) {
-    char'}' when inside.last() == char'{' && inside.size == 1 => return (nextCursor, init)
-    char'}' when inside.last() == char'{' && inside.size > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
+    char'}' when inside.last() == char'{' && inside.size() == 1 => return (nextCursor, init)
+    char'}' when inside.last() == char'{' && inside.size() > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     char'{' when inside.last() == char'{' => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
     _ when quotes.contains(nextChar) && inside.last() == nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     _ when quotes.contains(nextChar) && inside.last() != nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
