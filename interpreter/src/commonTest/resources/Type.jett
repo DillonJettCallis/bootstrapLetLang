@@ -34,6 +34,7 @@ data GenericType = { base: Type, paramTypes: List[Type] }
 atom UnknownType
 
 data NamedType = { name: String }
+data ImportedType = { packageName: String, modulePath: String }
 data PlaceholderType = { name: String }
 
 data UnionType = { paramTypes: List[Type] }
@@ -65,6 +66,7 @@ type Type
     | GenericType
     | UnknownType
     | NamedType
+    | ImportedType
     | PlaceholderType
     | UnionType
     | IntersectionType

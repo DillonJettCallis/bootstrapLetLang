@@ -1,17 +1,28 @@
 import this/Lexer.lex
 import this/Parser.parse
+import this/Checker.checkPackage
+import this/Checker.PackageScope
 import this/Ast.AstModule
+import this/Ast.AstPackage
 
-fun main(args: List[String]): List[AstModule] = {
+fun main(args: List[String]): PackageScope = {
   val srcDir = File.from(args.get(0));
   val files = srcDir.walkFiles();
   val srcFiles = files.filter({ file => file.extension() == 'jett' });
 
-  val lexedFiles = srcFiles.map({ next =>
+  val modules = srcFiles.fold(Map.of(), { sum, next =>
     val raw = next.readText()
-    lex(next.path(), raw)
+    val fullPath = next.path()
+    val lexed = lex(fullPath, raw)
+    val parsed = parse(lexed)
+    val modulePath = next.relativePath(srcDir)
+
+    sum.set(modulePath, parsed)
   });
 
-  val result = lexedFiles.map({ tokens => parse(tokens) });
-  return result;
+  val package = AstPackage { modules }
+
+  val checker = checkPackage(package, Map.of())
+
+  return checker;
 }

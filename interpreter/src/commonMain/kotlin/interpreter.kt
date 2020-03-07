@@ -350,6 +350,7 @@ private fun Any?.wrap(): JValue {
     JNull
   } else {
     val clazz = when (this) {
+      is JNull -> return this
       is JObject -> return this
       is String -> return JObject(mapOf("@src" to this, "size" to this.length), jString)
       is Char -> jChar
@@ -522,6 +523,12 @@ private val jMap = JClass(
         val (key, value) = pair.unwrap<List<JValue>>();
         key to value
       }.wrap()
+    },
+    "from" to JFunction { args ->
+      args[1].unwrap<List<JValue>>().associate { pair ->
+        val (key, value) = pair.unwrap<List<JValue>>();
+        key to value
+      }.wrap()
     }
   ),
   instanceMethods = mapOf(
@@ -539,6 +546,9 @@ private val jMap = JClass(
       val (rawMap, rawKey) = args
       val map = rawMap.unwrap<Map<JValue, JValue>>()
       map.containsKey(rawKey).wrap()
+    },
+    "entries" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().entries.map { it.toPair().toList().wrap() }.wrap()
     }
   )
 )
@@ -555,7 +565,11 @@ private val jFile = JClass(
     "walkFiles" to JFunction { args -> args[0].unwrap<FileImpl>().walkFiles().map { it.wrap() }.wrap() },
     "readText" to JFunction { it[0].unwrap<FileImpl>().readText().wrap() },
     "path" to JFunction { it[0].unwrap<FileImpl>().path.wrap() },
-    "extension" to JFunction { it[0].unwrap<FileImpl>().extension().wrap() }
+    "extension" to JFunction { it[0].unwrap<FileImpl>().extension().wrap() },
+    "relativePath" to JFunction { args ->
+      val (self, other) = args
+      self.unwrap<FileImpl>().relativePath(other.unwrap<FileImpl>()).map { it.wrap() } .wrap()
+    }
   )
 )
 
