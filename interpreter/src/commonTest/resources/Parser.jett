@@ -535,7 +535,7 @@ private fun parseDestructureDataPatterns(cursor: TokenCursor, init: List[(String
     (firstCursor, name)
   }
 
-  val result = init.set(baseName, name)
+  val result = init.add( (baseName, name) )
 
   val (endCursor, maybeEnd) = baseCursor.next()
 
@@ -725,7 +725,7 @@ private fun parseThrowExp(cursor: TokenCursor): (TokenCursor, Expression) = {
 }
 
 private fun parseBinaryExp(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val start = parseAccessExp
+  val start = parseIsExp
   val prod = parseBinaryExpSet(Set.of("*", "/"), start)
   val sum = parseBinaryExpSet(Set.of("+", "-"), prod)
   val compare = parseBinaryExpSet(Set.of(">", ">=", "<", "<="), sum)
@@ -753,6 +753,23 @@ private fun parseBinaryExpSet(ops: Set[String], next: {TokenCursor -> (TokenCurs
 
     rec(leftCursor, left)
   }
+}
+
+private val isKeywords = Set.of("is", "isNot")
+
+private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
+  val (leftCursor, left) = parseAccessExp(cursor)
+
+  val maybeIs = leftCursor.curr()
+
+  if (maybeIs is TokenWord && isKeywords.contains(maybeIs.value)) {
+    val (rightCursor, right) = parseAccessExp(leftCursor.skip())
+
+    return (rightCursor, BinaryOpExp{op: maybeIs.value, left, right, type: UnknownType, pos: maybeIs.pos})
+  } else {
+    return (leftCursor, left)
+  }
+
 }
 
 private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
@@ -843,7 +860,7 @@ private fun parseCallArguments(cursor: TokenCursor, init: List[Expression]): (To
 }
 
 private fun parseConstruct(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val (baseCursor, base) = parseIsExp(cursor)
+  val (baseCursor, base) = parseUnaryExp(cursor)
 
   val (maybeBracketCursor, maybeBracket) = baseCursor.next()
 
@@ -892,23 +909,6 @@ private fun parseConstructArgs(cursor: TokenCursor, init: List[(String, Expressi
   } else {
     maybeEnd.pos.fail("Expected end of construct")
   }
-}
-
-private val isKeywords = Set.of("is", "isNot")
-
-private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
-  val (leftCursor, left) = parseUnaryExp(cursor)
-
-  val maybeIs = leftCursor.curr()
-
-  if (maybeIs is TokenWord && isKeywords.contains(maybeIs.value)) {
-    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
-
-    return (rightCursor, BinaryOpExp{op: maybeIs.value, left, right, type: UnknownType, pos: maybeIs.pos})
-  } else {
-    return (leftCursor, left)
-  }
-
 }
 
 private val unaryOps = Set.of("-", "!")
@@ -1135,7 +1135,7 @@ private fun parseTermExp(cursor: TokenCursor): (TokenCursor, Expression) = {
   return (finalCursor, ex)
 }
 
-private fun parseType(cursor: TokenCursor): (TokenCursor, Type) = {
+fun parseType(cursor: TokenCursor): (TokenCursor, Type) = {
   return parseTypeTuple(cursor)
 }
 

@@ -88,7 +88,7 @@ implement Scope {
     }
   }
 
-  fun set(name: String, type: Type): Unit = this.values.set(name, type)
+  fun set(name: String, type: Type): Scope = this{values: this.values.set(name, type)}
 }
 
 

@@ -628,7 +628,7 @@ private fun parseThrowExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 }
 
 private fun parseBinaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val start = ::parseAccessExp
+  val start = ::parseIsExp
   val prod = parseBinaryExpSet(setOf("*", "/"), start)
   val sum = parseBinaryExpSet(setOf("+", "-"), prod)
   val compare = parseBinaryExpSet(setOf(">", ">=", "<", "<="), sum)
@@ -656,6 +656,21 @@ private fun parseBinaryExpSet(ops: Set<String>, next: (TokenCursor) -> Pair<Toke
 
     rec(leftCursor, left)
   }
+}
+
+private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
+  val (leftCursor, left) = parseAccessExp(cursor)
+
+  val maybeIs = leftCursor.curr()
+
+  return if (maybeIs is TokenWord && maybeIs.value in setOf("is", "isNot")) {
+    val (rightCursor, right) = parseAccessExp(leftCursor.skip())
+
+    rightCursor to BinaryOpExp(maybeIs.value, left, right, UnknownType, maybeIs.pos)
+  } else {
+    leftCursor to left
+  }
+
 }
 
 // just like parseBinaryExpSet except that access must always have an identifier on the right side
@@ -746,7 +761,7 @@ private tailrec fun parseCallArguments(cursor: TokenCursor, init: List<Expressio
 }
 
 private fun parseConstruct(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val (baseCursor, base) = parseIsExp(cursor)
+  val (baseCursor, base) = parseUnaryExp(cursor)
 
   val (maybeBracketCursor, maybeBracket) = baseCursor.next()
 
@@ -795,21 +810,6 @@ private fun parseConstructArgs(cursor: TokenCursor, init: List<Pair<String, Expr
   } else {
     maybeEnd.pos.fail("Expected end of construct")
   }
-}
-
-private fun parseIsExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
-  val (leftCursor, left) = parseUnaryExp(cursor)
-
-  val maybeIs = leftCursor.curr()
-
-  return if (maybeIs is TokenWord && maybeIs.value in setOf("is", "isNot")) {
-    val (rightCursor, right) = parseUnaryExp(leftCursor.skip())
-
-    rightCursor to BinaryOpExp(maybeIs.value, left, right, UnknownType, maybeIs.pos)
-  } else {
-    leftCursor to left
-  }
-
 }
 
 private fun parseUnaryExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
