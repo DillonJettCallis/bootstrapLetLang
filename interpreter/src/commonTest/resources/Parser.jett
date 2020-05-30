@@ -87,10 +87,10 @@ private data TokenCursor = { tokens: List[Token], index: Int }
 
 implement TokenCursor {
 
-  fun isEmpty(): Boolean = this.index + 1 >= this.tokens.size
-  fun curr(): Token = this.tokens.get(this.index)
-  fun skip(): TokenCursor = this{index: this.index + 1}
-  fun next(): (TokenCursor, Token) = (this.skip(), this.curr())
+  fun isEmpty(this): Boolean = this.index + 1 >= this.tokens.size
+  fun curr(this): Token = this.tokens.get(this.index)
+  fun skip(this): TokenCursor = this{index: this.index + 1}
+  fun next(this): (TokenCursor, Token) = (this.skip(), this.curr())
 
 }
 
@@ -352,18 +352,7 @@ private fun parseImplBody(cursor: TokenCursor, base: Type, init: List[FunctionDe
   }
 
   val (finalCursor, func) = parseFunctionDeclare(funCursor, access, funToken.pos)
-  val result = init.add(
-    func {
-      func: func.func {
-        body: func.func.body {
-          args: func.func.body.args.prepend("this"),
-          type: func.func.body.type {
-            paramTypes: func.func.body.type.paramTypes.prepend(base)
-          }
-        }
-      }
-    }
-  )
+  val result = init.add(func)
 
   val maybeEnd = finalCursor.curr()
 
@@ -574,17 +563,27 @@ private fun parseFunctionParameters(cursor: TokenCursor, init: List[(String, Typ
 
   if (nextWord is TokenWord) {
     val name = nextWord.value
-    val (colonCursor, colon) = nextCursor.next()
 
-    if (colon isNot TokenSymbol || colon.value != ":") {
-      colon.pos.fail("Expected ':'")
+    val ( result, finalCursor, maybeEnd ) = if (name == "this") {
+      // allow 'this' anytime, any where. Let the Typechecker enforce validity
+      val result = init.add( (name, NamedType{name}) )
+      val (finalCursor, maybeEnd) = nextCursor.next();
+      ( result, finalCursor, maybeEnd )
+    } else {
+      val (colonCursor, colon) = nextCursor.next()
+
+      if (colon isNot TokenSymbol || colon.value != ":") {
+        colon.pos.fail("Expected ':'")
+      }
+
+      val (typeCursor, type) = parseType(colonCursor)
+
+      val result = init.add( (name, type) )
+
+      val (finalCursor, maybeEnd) = typeCursor.next()
+
+      ( result, finalCursor, maybeEnd )
     }
-
-    val (typeCursor, type) = parseType(colonCursor)
-
-    val result = init.add( (name, type) )
-
-    val (finalCursor, maybeEnd) = typeCursor.next()
 
     if (maybeEnd is TokenSymbol) {
       match (maybeEnd.value) {

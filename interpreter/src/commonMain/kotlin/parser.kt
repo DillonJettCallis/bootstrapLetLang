@@ -263,12 +263,7 @@ private tailrec fun parseImplBody(cursor: TokenCursor, base: Type, init: List<Fu
   }
 
   val (finalCursor, func) = parseFunctionDeclare(funCursor, access, funToken.pos)
-  val result = init + func.copy(func = func.func.copy(body = func.func.body.copy(
-    args = listOf("this") + func.func.body.args,
-    type = func.func.body.type.copy(
-      paramTypes = listOf(base) + func.func.body.type.paramTypes
-    )
-  )))
+  val result = init + func
 
   val maybeEnd = finalCursor.curr()
 
@@ -479,17 +474,26 @@ private tailrec fun parseFunctionParameters(cursor: TokenCursor, init: List<Pair
 
   if (nextWord is TokenWord) {
     val name = nextWord.value
-    val (colonCursor, colon) = nextCursor.next()
 
-    if (colon !is TokenSymbol || colon.value != ":") {
-      colon.pos.fail("Expected ':'")
+    val ( result, finalCursor, maybeEnd ) = if (name == "this") {
+      // allow 'this' anytime, any where. Let the Typechecker enforce validity
+      val result = init + ( name to NamedType(name) )
+      val (finalCursor, maybeEnd) = nextCursor.next();
+      Triple( result, finalCursor, maybeEnd )
+    } else {
+      val (colonCursor, colon) = nextCursor.next()
+
+      if (colon !is TokenSymbol || colon.value != ":") {
+        colon.pos.fail("Expected ':'")
+      }
+
+      val (typeCursor, type) = parseType(colonCursor)
+
+      val result = init + (name to type)
+
+      val (finalCursor, maybeEnd) = typeCursor.next()
+      Triple( result, finalCursor, maybeEnd )
     }
-
-    val (typeCursor, type) = parseType(colonCursor)
-
-    val result = init + (name to type)
-
-    val (finalCursor, maybeEnd) = typeCursor.next()
 
     if (maybeEnd is TokenSymbol) {
       when (maybeEnd.value) {

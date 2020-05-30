@@ -15,14 +15,14 @@ data StringCursor = { raw: String, index: Int, pos: Position }
 
 implement StringCursor {
 
-  fun isEmpty(): Boolean = this.index >= this.raw.size
-  fun isNotEmpty(): Boolean = !this.isEmpty()
-  fun curr(): Char = this.raw.getCharAt(this.index)
-  fun skip(): StringCursor = this{index: this.index + 1, pos: this.pos.increment(this.curr())}
-  fun next(): (StringCursor, Char) = {
+  fun isEmpty(this): Boolean = this.index >= this.raw.size
+  fun isNotEmpty(this): Boolean = !this.isEmpty()
+  fun curr(this): Char = this.raw.getCharAt(this.index)
+  fun skip(this): StringCursor = this{index: this.index + 1, pos: this.pos.increment(this.curr())}
+  fun next(this): (StringCursor, Char) = {
     (this.skip(), this.curr())
   }
-  fun nextEscaped(): (StringCursor, Char) = {
+  fun nextEscaped(this): (StringCursor, Char) = {
     val (nextCursor, firstChar) = this.next()
 
     if (firstChar == char'\\') {
@@ -48,8 +48,8 @@ implement StringCursor {
 data Position = { line: Int, col: Int, src: String }
 
 implement Position {
-  fun increment(next: Char): Position = if (next == char'\n') this{line: this.line + 1, col: 0} else this{col: this.col + 1}
-  fun fail(message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
+  fun increment(this, next: Char): Position = if (next == char'\n') this{line: this.line + 1, col: 0} else this{col: this.col + 1}
+  fun fail(this, message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
 }
 
 data TokenWord = { value: String, pos: Position }
