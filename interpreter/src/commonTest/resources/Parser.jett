@@ -1,3 +1,4 @@
+import this/Lexer.Position
 import this/Lexer.Token
 import this/Lexer.TokenWord
 import this/Lexer.TokenSymbol
@@ -49,7 +50,7 @@ import this/Ast.ProtocolDeclare
 import this/Ast.ImplDeclare
 import this/Ast.MatchPattern
 import this/Ast.AstModule
-import this/Ast.AstPackage
+import this/Ast.AstFile
 
 import this/StringTemplate.parseStringTemplateWithPrefix
 
@@ -94,10 +95,10 @@ implement TokenCursor {
 
 }
 
-fun parse(tokens: List[Token]): AstModule = {
+fun parse(tokens: List[Token]): AstFile = {
   val cursor = TokenCursor{ tokens, index: 0 }
 
-  parseModule(cursor, List.of())
+  parseFile(cursor, List.of())
 }
 
 fun parseExpressionOnly(tokens: List[Token]): Expression = {
@@ -108,9 +109,9 @@ fun parseExpressionOnly(tokens: List[Token]): Expression = {
   result
 }
 
-private fun parseModule(cursor: TokenCursor, declarations: List[Declaration]): AstModule = {
+private fun parseFile(cursor: TokenCursor, declarations: List[Declaration]): AstFile = {
   if (cursor.isEmpty()) {
-    return AstModule{declarations}
+    return AstFile{declarations}
   } else {
     val (nextCursor, token) = cursor.next()
 
@@ -124,7 +125,7 @@ private fun parseModule(cursor: TokenCursor, declarations: List[Declaration]): A
           _ => parseDeclaration(cursor, Internal)
         }
 
-        return parseModule(finalCursor, declarations.add(dec))
+        return parseFile(finalCursor, declarations.add(dec))
       }
 
       _ => token.pos.fail('Expected declaration')
@@ -156,7 +157,13 @@ private fun parseDeclaration(cursor: TokenCursor, access: AccessModifier): (Toke
 private fun parseConstDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, ConstantDeclare) = {
   val (assignCursor, assign) = parseSingleAssignmentStatement(cursor, pos)
 
-  (assignCursor, ConstantDeclare{assign, access, pos})
+  val type = assign.declaredType
+
+  if (type == UnknownType) {
+    assign.pos.fail("Constants must declare their type")
+  }
+
+  return (assignCursor, ConstantDeclare{assign, type, access, pos})
 }
 
 private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, AtomDeclare) = {
@@ -202,41 +209,64 @@ private fun parseImportDeclare(cursor: TokenCursor, pos: Position): (TokenCursor
 }
 
 private fun parseImportStatement(cursor: TokenCursor, pos: Position): (TokenCursor, ImportStatement) = {
-  val (packageCursor, packageToken) = cursor.next()
+  val (orgCursor, orgToken) = cursor.next()
 
-  if (packageToken isNot TokenWord) {
-    packageToken.pos.fail("Expected import package name")
+  if (orgToken isNot TokenWord) {
+    orgToken.pos.fail("Expected import package name")
   }
 
-  val packageName = packageToken.value
+  val orgName = orgToken.value
 
-  val (slashCursor, slash) = packageCursor.next()
+  val (slashCursor, slash) = orgCursor.next()
 
   if (slash isNot TokenSymbol || slash.value != "/") {
     slash.pos.fail("Expected import package module delimiter '/'")
   }
 
-  fun parseImportPath(cursor: TokenCursor, init: List[String]): (TokenCursor, List[String]) = {
+  fun parseImportPath(cursor: TokenCursor, init: String): (TokenCursor, String, String) = {
     val (nextCursor, nextToken) = cursor.next()
 
     if (nextToken isNot TokenWord) {
       nextToken.pos.fail("Expected module path in import")
     }
 
-    val result = init.add(nextToken.value)
+    val result = if (init.isEmpty()) {
+      nextToken.value
+    } else {
+      "$init.${nextToken.value}"
+    }
 
     val maybeDot = nextCursor.curr()
 
-    if (maybeDot is TokenSymbol && maybeDot.value == ".") {
-      return parseImportPath(nextCursor.skip(), result)
+    return if (maybeDot is TokenSymbol && maybeDot.value == ".") {
+      parseImportPath(nextCursor.skip(), result)
     } else {
-      return (nextCursor, result)
+      (nextCursor, result, nextToken.value)
     }
   }
 
-  val (finalCursor, modulePath) = parseImportPath(slashCursor, List.of())
+  val (maybeModuleCursor, maybeModule) = slashCursor.next()
 
-  return (finalCursor, ImportStatement{packageName, modulePath, pos})
+  if (maybeModule isNot TokenWord) {
+    maybeModule.pos.fail("Expected module name in import")
+  }
+
+  val (maybeSlashCursor, maybeSlash) = maybeModuleCursor.next()
+
+  val (moduleName, finalCursor, path, name) = if (maybeSlash is TokenSymbol && maybeSlash.value == "/") {
+    // this is a fully qualified import, nothing special to do
+    val (finalCursor, path, name) = parseImportPath(maybeSlashCursor, "");
+    (maybeModule.value, finalCursor, path, name)
+  } else {
+    if (orgName == "this") {
+      val (finalCursor, path, name) = parseImportPath(slashCursor, "");
+      ("this", finalCursor, path, name)
+    } else {
+      maybeSlash.pos.fail("Only a 'this' import can skip the org name")
+    }
+  }
+
+  return (finalCursor, ImportStatement{org: orgName, module: moduleName, path, name, pos})
 }
 
 private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, DataDeclare) = {
@@ -466,7 +496,15 @@ private fun parseSingleAssignmentStatement(cursor: TokenCursor, pos: Position): 
 
   val name = nameToken.value
 
-  val (equalsCursor, equals) = nameCursor.next()
+  val (maybeColonCursor, maybeColon) = nameCursor.next()
+
+  val (typeCursor, type) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
+    parseType(maybeColonCursor)
+  } else {
+    (nameCursor, UnknownType)
+  }
+
+  val (equalsCursor, equals) = typeCursor.next()
 
   if (equals isNot TokenSymbol || equals.value != "=") {
     equals.pos.fail("Expected assignment = operator")
@@ -474,7 +512,7 @@ private fun parseSingleAssignmentStatement(cursor: TokenCursor, pos: Position): 
 
   val (bodyCursor, body) = parseExpression(equalsCursor)
 
-  return (bodyCursor, AssignmentStatement{name, body, pos})
+  return (bodyCursor, AssignmentStatement{name, declaredType: type, body, pos})
 }
 
 private fun parseDestructureTuplePatterns(cursor: TokenCursor, init: List[String]): (TokenCursor, List[String]) = {
@@ -754,7 +792,7 @@ private fun parseBinaryExpSet(ops: Set[String], next: {TokenCursor -> (TokenCurs
   }
 }
 
-private val isKeywords = Set.of("is", "isNot")
+private val isKeywords: Set[String] = Set.of("is", "isNot")
 
 private fun parseIsExp(cursor: TokenCursor): (TokenCursor, Expression) = {
   val (leftCursor, left) = parseAccessExp(cursor)
@@ -910,7 +948,7 @@ private fun parseConstructArgs(cursor: TokenCursor, init: List[(String, Expressi
   }
 }
 
-private val unaryOps = Set.of("-", "!")
+private val unaryOps: Set[String] = Set.of("-", "!")
 
 private fun parseUnaryExp(cursor: TokenCursor): (TokenCursor, Expression) = {
   val maybeOp = cursor.curr()
@@ -978,7 +1016,7 @@ private fun parseBlockExp(cursor: TokenCursor): (TokenCursor, Expression) = {
 }
 
 
-private val isLambdaArrows = Set.of("->", "=>")
+private val isLambdaArrows: Set[String] = Set.of("->", "=>")
 
 private fun parseLambdaExp(cursor: TokenCursor, pos: Position): (TokenCursor, Expression) = {
   val maybeArrow = cursor.curr()

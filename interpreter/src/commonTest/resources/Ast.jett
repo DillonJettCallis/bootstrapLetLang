@@ -5,6 +5,10 @@ import this/Type.FloatType
 import this/Type.StringType
 import this/Type.CharType
 
+// Private is within the same file
+// Protected is within the same module
+// Internal is within the same organization
+// Public is anything anywhere
 atom Public
 atom Protected
 atom Internal
@@ -74,10 +78,10 @@ data MatchExp = { base: Expression, patterns: List[MatchPattern], type: Type, po
 data MatchPattern = { base: Expression, guard: Expression, body: Expression, pos: Position }
 
 data ExpressionStatement = { ex: Expression, pos: Position }
-data AssignmentStatement = { name: String, body: Expression, pos: Position }
+data AssignmentStatement = { name: String, declaredType: Type, body: Expression, pos: Position }
 data FunctionStatement = { name: String, body: LambdaExp, pos: Position }
 data TypeStatement = { name: String, value: Type, pos: Position }
-data ImportStatement = { packageName: String, modulePath: List[String], pos: Position }
+data ImportStatement = { org: String, module: String, path: String, name: String, pos: Position }
 data DeconstructDataStatement = { base: Expression, values: List[(String, String)], pos: Position }
 data DeconstructTupleStatement = { base: Expression, names: List[String], pos: Position }
 data DebuggerStatement = { pos: Position }
@@ -87,11 +91,11 @@ data AtomDeclare = { name: String, access: AccessModifier, pos: Position }
 data DataDeclare = { name: String, body: Map[String, Type], access: AccessModifier, pos: Position }
 data TypeDeclare = { type: TypeStatement, access: AccessModifier, pos: Position }
 data FunctionDeclare = { func: FunctionStatement, access: AccessModifier, pos: Position }
-data ImportDeclare = { import: ImportStatement, access: AccessModifier, pos: Position }
-data ConstantDeclare = { assign: AssignmentStatement, access: AccessModifier, pos: Position }
+data ImportDeclare = { statement: ImportStatement, access: AccessModifier, pos: Position }
+data ConstantDeclare = { assign: AssignmentStatement, type: Type, access: AccessModifier, pos: Position }
 data ProtocolDeclare = { name: String, funcs: List[(String, Type)], access: AccessModifier, pos: Position }
 data ImplDeclare = { base: Type, proto: Type, funcs: List[FunctionDeclare], access: AccessModifier, pos: Position }
 
-data AstModule = { declarations: List[Declaration] }
+data AstFile = { declarations: List[Declaration] }
 
-data AstPackage = { modules: Map[List[String], AstModule] }
+data AstModule = { files: Map[List[String], AstFile] }

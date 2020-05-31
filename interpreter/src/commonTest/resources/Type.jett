@@ -9,6 +9,7 @@ atom UnitType
 atom NothingType
 
 atom ListType
+atom SetType
 atom MapType
 
 type PrimitiveType
@@ -22,19 +23,22 @@ type PrimitiveType
     | UnitType
     | NothingType
     | ListType
+    | SetType
     | MapType
 
 data AtomType = { name: String }
 data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType] }
+data ConstructorType = { base: DataType }
 data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType] }
 data FunctionType = { paramTypes: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
+data VarArgsType = { base: Type }
 data TupleType = { paramTypes: List[Type] }
 data GenericType = { base: Type, paramTypes: List[Type] }
 
 atom UnknownType
 
 data NamedType = { name: String }
-data ImportedType = { packageName: String, modulePath: String }
+data QualifiedType = { org: String, module: String, path: String }
 data PlaceholderType = { name: String }
 
 data UnionType = { paramTypes: List[Type] }
@@ -60,20 +64,21 @@ type Type
     = PrimitiveType
     | AtomType
     | DataType
+    | ConstructorType
     | ProtocolType
     | FunctionType
     | TupleType
     | GenericType
     | UnknownType
     | NamedType
-    | ImportedType
+    | QualifiedType
     | PlaceholderType
     | UnionType
     | IntersectionType
 
 fun listOfType(item: Type): GenericType = GenericType{ base: ListType, paramTypes: List.of(item) }
 
-val stringTemplateType = FunctionType {
+val stringTemplateType: FunctionType = FunctionType {
   paramTypes: List.of(listOfType(StringType), listOfType(AnyType)),
   resultType: StringType
 }

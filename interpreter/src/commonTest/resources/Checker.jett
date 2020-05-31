@@ -45,18 +45,19 @@ import this/Ast.ProtocolDeclare
 import this/Ast.ImplDeclare
 import this/Ast.MatchPattern
 import this/Ast.AstModule
-import this/Ast.AstPackage
+import this/Ast.AstFile
 
 import this/Type.PrimitiveType
 import this/Type.AtomType
 import this/Type.DataType
+import this/Type.ConstructorType
 import this/Type.ProtocolType
 import this/Type.FunctionType
 import this/Type.TupleType
 import this/Type.GenericType
 import this/Type.UnknownType
 import this/Type.NamedType
-import this/Type.ImportedType
+import this/Type.QualifiedType
 import this/Type.PlaceholderType
 import this/Type.UnionType
 import this/Type.IntersectionType
@@ -71,149 +72,185 @@ import this/Type.UnitType
 import this/Type.NothingType
 import this/Type.ListType
 import this/Type.MapType
+import this/Type.VarArgsType
 import this/Type.Type
 
-data PackageScope = { env: Map[String, PackageScope], values: Map[List[String], (AccessModifier, Type)] }
+import this/CoreLib.initCoreScope
 
-implement PackageScope {
-  fun lookupImport(this, ex: ImportStatement, currentPath: List[String]): Type = {
-    val { packageName, modulePath, pos} = ex;
-
-    if (packageName == 'this') {
-      val item = this.values.get(modulePath);
-
-      if (item == null) {
-        pos.fail("${ item.join('.') } does not exist")
-      }
-
-      val (itemAccess, itemType) = item
-
-      val isAccessible = match (itemAccess) {
-        Public => true
-        Internal => true
-        Private => false
-        Protected => currentPath.size() >= modulePath.size() && modulePath.zip(currentPath).all({ left, right => left == right })
-      }
-
-      if (isAccessible) {
-        return itemType;
-      } else {
-        pos.fail("${ item.join('.') } is not accessible here")
-      }
-    } else {
-      val package = this.env.get(packageName)
-
-      if (package == null) {
-        pos.fail("No such package '$packageName' found")
-      }
-
-      val item = package.values.get(modulePath)
-
-      if (item == null) {
-        pos.fail("${ item.join('.') } is not a valid public member of $packageName")
-      }
-
-      val (itemAccess, itemType) = item;
-
-      if (itemAccess == Public) {
-        return itemType
-      } else {
-        pos.fail("${ item.join('.') } is not a valid public member of $packageName")
-      }
-    }
-  }
-
-  fun insertDeclaration(this, modulePath: List[String], access: AccessModifier, type: Type): PackageScope = {
-    this{values: this.values.set(modulePath, (access, type))}
-  }
+private data DependencyScope = {
+  values: Map[String, Type]
 }
 
-data Scope = { values: Map[String, Type], parent: Scope }
+private data ModuleScope = {
+  deps: Map[(String, String), DependencyScope],
+  files: Map[String, (AstFile, Scope)]
+}
+
+data Scope = {
+  parent: Scope,
+  types: Map[String, Type],
+  values: Map[String, Type]
+}
 
 implement Scope {
 
-  fun get(this, name: String, pos: Position): Type = {
-    if (this.values.contains(name)) {
-      return this.values.get(name)
-    } else {
-      if (this.parent != null) {
-        return this.parent.get(name, pos)
+  fun child(this): Scope = Scope{parent: this, values: Map.of(), types: Map.of()}
+
+  fun setType(this, name: String, value: Type): Scope = this{ types: this.types.set(name, value) }
+  fun getType(this, name: String): Type = {
+    val mine = this.types.get(name);
+
+    if (mine == null) {
+      if (this.parent == null) {
+        return null
       } else {
-        pos.fail("Unknown type $name is not in scope")
+        return this.parent.getType(name)
       }
-    }
-  }
-
-  fun set(this, name: String, type: Type): Scope = this{values: this.values.set(name, type)}
-}
-
-fun initScope(): Scope = Scope { values: Map.of(), parent: null }
-
-fun checkPackage(pack: AstPackage, env: Map[String, PackageScope]): PackageScope = {
-  val packageScope = PackageScope { env, values: Map.of() }
-
-  val namesOnly = pack.modules.entries().fold(packageScope, { pack, pair =>
-    val (modulePath, module) = pair
-
-    val (scope, pack) = populateNames(modulePath, module, pack);
-    pack
-  });
-
-  return namesOnly;
-}
-
-private fun populateNames(moduleBase: List[String], module: AstModule, initPackage: PackageScope): (Scope, PackageScope) = {
-  val scope = module.declarations.fold(initScope(), { scope, dec =>
-    if (dec is ImportDeclare) {
-      val { packageName, modulePath } = dec.statement;
-      scope.set(modulePath.last(), ImportedType { packageName, modulePath })
     } else {
-      scope
-    }
-  });
-
-  fun applyImports(src: Type): Type = {
-    match (src) {
-      _ when src is DataType => src{ fields: Map.from(src.fields.entries().map({ pair => val (key, value) = pair; (key, applyImports(value)) })) }
-      _ when src is FunctionType => src{ paramTypes: src.paramTypes.map(applyImports), resultType: applyImports(src.resultType) }
-      _ when src is TupleType => TupleType { paramTypes: src.paramTypes.map(applyImports) }
-      _ when src is GenericType => GenericType { base: applyImports(src.base), paramTypes: src.paramTypes.map(applyImports) }
-      _ when src is UnionType => UnionType { paramTypes: src.paramTypes.map(applyImports) }
-      _ when src is IntersectionType => IntersectionType { paramTypes: src.paramTypes.map(applyImports) }
-      _ when src is NamedType => {
-        val maybe = scope.values.get(src.name)
-
-        if (maybe == null) src else maybe
-      }
-      _ => src
+      return mine
     }
   }
 
-  val finalPack = module.declarations.fold(initPackage, { pack, dec =>
-    match (dec) {
-      _ when dec is AtomDeclare => pack.insertDeclaration( moduleBase.add(dec.name), dec.access, AtomType{name: dec.name} )
-      _ when dec is DataDeclare => pack.insertDeclaration ( moduleBase.add(dec.name), dec.access, applyImports(DataType { name: dec.name, fields: dec.body, typeParams: List.of() }) )
-      _ when dec is TypeDeclare => pack.insertDeclaration ( moduleBase.add(dec.type.name), dec.access, applyImports(dec.type.value) )
-      _ when dec is FunctionDeclare => pack.insertDeclaration ( moduleBase.add(dec.func.name), dec.access, applyImports(dec.func.body.type) )
-      _ when dec is ImportDeclare => pack
-      _ when dec is ConstantDeclare => pack.insertDeclaration ( moduleBase.add(dec.assign.name), dec.access, applyImports(dec.assign.body.type) )
-      _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not yet supported")
-      _ when dec is ImplDeclare => {
-        val baseName = if ( dec.base is NamedType ) dec.base.name else dec.pos.fail("Something is very wrong. Type checker expects the parser to always produce NamedType for the base of an ImplDeclare")
+  fun setValue(this, name: String, value: Type): Scope = this{ values: this.values.set(name, value) }
+  fun getValue(this, name: String): Type = {
+    val mine = this.values.get(name);
 
-        if ( dec.proto != null ) {
-          dec.pos.fail("Protocols are not yet supported")
+    if (mine == null) {
+      if (this.parent == null) {
+        return null
+      } else {
+        return this.parent.getValue(name)
+      }
+    } else {
+      return mine
+    }
+  }
+
+  fun resolveName(this, init: Type, pos: Position): Type = {
+    match (init) {
+      _ when init is NamedType => {
+        val byName = this.getType(init.name)
+
+        if (byName == null) {
+          pos.fail("Could not find type with name ${init.name} in scope")
         }
 
-        dec.funcs.fold(pack, { pack, func =>
-          val funcName = "$baseName.${func.func.name}"
-
-          pack.insertDeclaration( moduleBase.add(funcName), func.access, applyImports(func.func.body.type) )
-        });
+        byName
       }
-    }
-  })
+      _ when init is DataType => {
+        // child scope with generic types
+        val childScope = init.typeParams.fold(this.child(), { sum, next =>
+          sum.setType(next.name, next)
+        })
 
-  return (scope, finalPack);
+        val mappedFields = init.fields.entries().map({ entry =>
+          val (name, value) = entry;
+          val mappedType = childScope.resolveName(value, pos);
+          return (name, mappedType);
+        });
+
+        init { fields: Map.from(mappedFields) };
+      }
+      _ when init is ConstructorType => ConstructorType{ base: resolveName(init.base, pos) }
+      _ when init is ProtocolType => pos.fail("Protocol types are not yet supported")
+      _ when init is FunctionType => {
+        // child scope with generic types
+        val childScope = init.typeParams.fold(this.child(), { sum, next =>
+          sum.setType(next.name, next)
+        })
+
+        val paramTypes = init.paramTypes.map({ value =>
+          childScope.resolveName(value, pos)
+        });
+
+        val resultType = childScope.resolveName(init.resultType, pos);
+
+        init { paramTypes, resultType }
+      }
+      _ when init is VarArgsType => VarArgsType { base: this.resolveName(init.base, pos) }
+      _ when init is TupleType => TupleType { paramTypes: init.paramTypes.map({raw => this.resolveName(raw, pos)}) }
+      _ when init is UnionType => UnionType { paramTypes: init.paramTypes.map({raw => this.resolveName(raw, pos)}) }
+      _ when init is IntersectionType => IntersectionType { paramTypes: init.paramTypes.map({raw => this.resolveName(raw, pos)}) }
+      _ when init is GenericType => GenericType{
+        base: this.resolveName(init.base, pos),
+        paramTypes: init.paramTypes.map({raw => this.resolveName(raw, pos)})
+      }
+      _ => init
+    }
+  }
+}
+
+fun checkModule(module: AstModule): List[Scope] = {
+  val core = initCoreScope();
+
+  module.files.entries().map({ entry =>
+    val (path, astFile) = entry;
+
+    buildFileScope(core, path.last(), astFile)
+  })
+}
+
+private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope = {
+  fun qualified(name: String): Scope = {
+    return QualifiedType { org: 'this', module: 'this', path: "$basePath.$name" };
+  }
+
+  fun qualifiedType(scope: Scope, name: String): Scope = {
+    return scope.setType(name, qualified(name));
+  }
+
+  // contains all the TYPES that are in scope, not the VALUES
+  val names = file.declarations.fold(core.child(), { sum, next =>
+    match (next) {
+      _ when next is AtomDeclare => qualifiedType(sum, next.name)
+      _ when next is DataDeclare => qualifiedType(sum, next.name)
+      _ when next is TypeDeclare => qualifiedType(sum, next.type.name)
+      _ when next is ImportDeclare => {
+        val {org, module, path, name} = next.statement;
+        sum.setType(name, QualifiedType { org, module, path } );
+      }
+      _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
+      _ => sum
+    }
+  });
+
+  //debugger;
+
+  // set up all the VALUES now
+  file.declarations.fold(names, { sum, next =>
+    match (next) {
+      _ when next is AtomDeclare => sum.setValue(next.name, sum.getType(next.name))
+      _ when next is DataDeclare => sum.setValue(next.name, ConstructorType{ base: sum.getType(next.name) })
+      _ when next is FunctionDeclare => sum.setValue(next.func.name, sum.resolveName( next.func.body.type, next.pos ))
+      _ when next is ImportDeclare => {
+        val {org, module, path, name} = next.statement;
+        sum.setValue(name, QualifiedType { org, module, path } );
+      }
+      _ when next is ConstantDeclare => sum.setValue(next.assign.name, sum.resolveName(next.type, next.pos))
+      _ when next is ImplDeclare => {
+        if (next.proto != null) {
+          next.pos.fail("Protocols are not implemented yet")
+        } else {
+          if (next.base isNot NamedType) {
+            next.pos.fail("Only NamedTypes are supported right now")
+          }
+
+          val baseName = next.base.name;
+          val qualifiedBase = sum.getType(baseName)
+
+          if (qualifiedBase == null) {
+            next.pos.fail("Implementations must be in the same file as their data type for now.")
+          }
+
+          next.funcs.fold(sum, { innerSum, funDec =>
+            val name = "${baseName}.${funDec.func.name}";
+
+            innerSum.setValue(name, innerSum.child().setType("this", qualifiedBase).resolveName(funDec.func.body.type, next.pos));
+          });
+        }
+      }
+      _ => sum
+    }
+   })
 }
 

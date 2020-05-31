@@ -1,0 +1,54 @@
+import this/Type.PrimitiveType
+import this/Type.AtomType
+import this/Type.DataType
+import this/Type.ProtocolType
+import this/Type.FunctionType
+import this/Type.TupleType
+import this/Type.GenericType
+import this/Type.UnknownType
+import this/Type.NamedType
+import this/Type.PlaceholderType
+import this/Type.UnionType
+import this/Type.IntersectionType
+import this/Type.CharType
+import this/Type.StringType
+import this/Type.IntType
+import this/Type.FloatType
+import this/Type.BooleanType
+import this/Type.AnyType
+import this/Type.NullType
+import this/Type.UnitType
+import this/Type.NothingType
+import this/Type.ListType
+import this/Type.SetType
+import this/Type.MapType
+import this/Type.VarArgsType
+import this/Type.Type
+import this/Type.VarArgsType
+import this/Type.makeUnionType
+import this/Type.makeIntersectionType
+import this/Type.listOfType
+import this/Type.stringTemplateType
+
+import this/Checker.Scope
+
+
+
+fun initCoreScope(): Scope = Scope {
+  parent: null,
+  types: Map.of()
+    .set("List", ListType)
+    .set("Set", SetType)
+    .set("Map", MapType)
+    .set("Char", CharType)
+    .set("String", StringType)
+    .set("Int", IntType)
+    .set("Float", FloatType)
+    .set("Boolean", BooleanType)
+    .set("Unit", UnitType)
+    .set("Nothing", NothingType),
+  values: Map.of()
+}
+
+
+

@@ -6,8 +6,8 @@ fun main(args: Array<String>) {
     val baseFile = FileImpl(fileName)
     val files = baseFile.walkFiles()
 
-    val astPackage: Map<List<String>, AstModule> = files.filter { it.extension() == "jett" }
-      .fold(mapOf<List<String>, AstModule>()) { sum, next ->
+    val astPackage: Map<List<String>, AstFile> = files.filter { it.extension() == "jett" }
+      .fold(mapOf<List<String>, AstFile>()) { sum, next ->
         val raw = next.readText()
         val tokens = lex(next.path, raw)
 
@@ -16,7 +16,7 @@ fun main(args: Array<String>) {
         sum + (next.relativePath(baseFile) to module)
       }
 
-    val result = executePackage(AstPackage(astPackage), listOf(fileName))
+    val result = executePackage(AstModule(astPackage), listOf(fileName))
 
     println("Done")
   }

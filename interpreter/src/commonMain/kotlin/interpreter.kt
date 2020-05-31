@@ -21,23 +21,23 @@ private class Scope(val values: MutableMap<String, JValue>, val parent: Scope?) 
 
 private class ReturnException(val value: JValue): RuntimeException()
 
-fun executePackage(pack: AstPackage, args: List<String>): Any? {
+fun executePackage(pack: AstModule, args: List<String>): Any? {
   val core = initCoreScope()
 
-  pack.modules.forEach { (path, mod) ->
+  pack.files.forEach { (path, mod) ->
     core[path.joinToString(".")] = buildScope(mod, core).wrap()
   }
 
-  pack.modules.forEach { (path, mod) ->
+  pack.files.forEach { (path, mod) ->
     val thisScope = core[path.joinToString(".")].unwrap<Scope>()
 
     mod.declarations.filterIsInstance<ImportDeclare>().forEach {
-      val (packageName, modulePath) = it.import
+      val (packageName, modulePath, path) = it.import
 
       // TODO: For now we assume only internal imports. All core libs are auto imported
 
-      val init = modulePath.dropLast(1).joinToString(".")
-      val value = modulePath.last()
+      val init = path.dropLast(1).joinToString(".")
+      val value = path.last()
 
       thisScope[value] = core[init].unwrap<Scope>()[value]
     }
@@ -48,10 +48,10 @@ fun executePackage(pack: AstPackage, args: List<String>): Any? {
   return executeMain(mainFun, args)
 }
 
-private fun buildScope(module: AstModule, core: Scope): Scope {
+private fun buildScope(file: AstFile, core: Scope): Scope {
   val moduleScope = core.child()
 
-  module.declarations.forEach {
+  file.declarations.forEach {
     when (it) {
       is AtomDeclare -> moduleScope[it.name] = JAtom(it.name)
       is DataDeclare -> moduleScope[it.name] = JClass(it.name, emptyMap(), emptyMap())
@@ -263,7 +263,13 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
             val values = interpret(state.base, local) as JObject
 
             state.values.forEach { (inside, outside) ->
-              local[inside] = values.fields.getValue(outside).wrap()
+              val value = values.fields[outside]
+
+              if (value == null) {
+                throw NoSuchElementException("Could not find field named $outside in object")
+              }
+
+              local[inside] = value.wrap()
             }
 
             JNull
@@ -383,6 +389,9 @@ private val jString = JClass("String", mapOf(
     "toUpperCase" to JFunction {
       it[0].unwrap<String>().toUpperCase().wrap()
     },
+    "isEmpty" to JFunction {
+      it[0].unwrap<String>().isEmpty().wrap()
+    },
     "append" to JFunction {
       val (left, right) = it
       (left.unwrap<String>() + right.unwrap<Any?>().toString()).wrap()
@@ -400,7 +409,7 @@ private val jString = JClass("String", mapOf(
 
       self.replace(pattern, replace).wrap()
     },
-  "toString" to JFunction { it[0] }
+    "toString" to JFunction { it[0] }
   ), mapOf()
 )
 

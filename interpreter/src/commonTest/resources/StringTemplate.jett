@@ -8,6 +8,7 @@ import this/Ast.Expression
 
 import this/Parser.parseExpressionOnly
 
+import this/Lexer.Position
 import this/Lexer.StringCursor
 import this/Lexer.lexFragment
 import this/Lexer.munchWord
@@ -100,7 +101,7 @@ private fun munchStringBody(cursor: StringCursor, initStrings: List[String], ini
   }
 }
 
-private val quotes = "'\"`"
+private val quotes: String = "'\"`"
 
 private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (StringCursor, String) = {
   val (nextCursor, nextChar) = cursor.next()

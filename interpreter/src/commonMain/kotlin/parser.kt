@@ -8,7 +8,7 @@ private data class TokenCursor(val tokens: List<Token>, val index: Int) {
   }
 }
 
-fun parse(tokens: List<Token>): AstModule {
+fun parse(tokens: List<Token>): AstFile {
   val cursor = TokenCursor(tokens, 0)
 
   return parseModule(cursor, listOf())
@@ -20,9 +20,9 @@ fun parseExpression(tokens: List<Token>): Expression {
   return parseExpression(cursor).second
 }
 
-private tailrec fun parseModule(cursor: TokenCursor, declarations: List<Declaration>): AstModule {
+private tailrec fun parseModule(cursor: TokenCursor, declarations: List<Declaration>): AstFile {
   return if (cursor.isEmpty()) {
-    AstModule(declarations)
+    AstFile(declarations)
   } else {
     val (nextCursor, token) = cursor.next()
 
@@ -67,7 +67,13 @@ private fun parseDeclaration(cursor: TokenCursor, access: AccessModifier): Pair<
 private fun parseConstDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, ConstantDeclare> {
   val (assignCursor, assign) = parseSingleAssignmentStatement(cursor, pos)
 
-  return assignCursor to ConstantDeclare(assign, access, pos)
+  val type = assign.declaredType
+
+  if (type == UnknownType) {
+    assign.pos.fail("Constants must declare their type")
+  }
+
+  return assignCursor to ConstantDeclare(assign, type, access, pos)
 }
 
 private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, AtomDeclare> {
@@ -113,15 +119,15 @@ private fun parseImportDeclare(cursor: TokenCursor, pos: Position): Pair<TokenCu
 }
 
 private fun parseImportStatement(cursor: TokenCursor, pos: Position): Pair<TokenCursor, ImportStatement> {
-  val (packageCursor, packageToken) = cursor.next()
+  val (orgCursor, orgToken) = cursor.next()
 
-  if (packageToken !is TokenWord) {
-    packageToken.pos.fail("Expected import package name")
+  if (orgToken !is TokenWord) {
+    orgToken.pos.fail("Expected import package name")
   }
 
-  val packageName = packageToken.value
+  val orgName = orgToken.value
 
-  val (slashCursor, slash) = packageCursor.next()
+  val (slashCursor, slash) = orgCursor.next()
 
   if (slash !is TokenSymbol || slash.value != "/") {
     slash.pos.fail("Expected import package module delimiter '/'")
@@ -145,9 +151,28 @@ private fun parseImportStatement(cursor: TokenCursor, pos: Position): Pair<Token
     }
   }
 
-  val (finalCursor, path) = parseImportPath(slashCursor)
+  val (maybeModuleCursor, maybeModule) = slashCursor.next()
 
-  return finalCursor to ImportStatement(packageName, path, pos)
+  if (maybeModule !is TokenWord) {
+    maybeModule.pos.fail("Expected module name in import")
+  }
+
+  val (maybeSlashCursor, maybeSlash) = maybeModuleCursor.next()
+
+  val (moduleName, finalCursor, path) = if (maybeSlash is TokenSymbol && maybeSlash.value == "/") {
+    // this is a fully qualified import, nothing special to do
+    val (finalCursor, path) = parseImportPath(maybeSlashCursor)
+    Triple(maybeModule.value, finalCursor, path)
+  } else {
+    if (orgName == "this") {
+      val (finalCursor, path) = parseImportPath(slashCursor)
+      Triple("this", finalCursor, path)
+    } else {
+      maybeSlash.pos.fail("Only a 'this' import can skip the org name")
+    }
+  }
+
+  return finalCursor to ImportStatement(orgName, moduleName, path, pos)
 }
 
 private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, DataDeclare> {
@@ -377,7 +402,15 @@ private fun parseSingleAssignmentStatement(cursor: TokenCursor, pos: Position): 
 
   val name = nameToken.value
 
-  val (equalsCursor, equals) = nameCursor.next()
+  val (maybeColonCursor, maybeColon) = nameCursor.next()
+
+  val (typeCursor, type) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
+    parseType(maybeColonCursor)
+  } else {
+    nameCursor to UnknownType
+  }
+
+  val (equalsCursor, equals) = typeCursor.next()
 
   if (equals !is TokenSymbol || equals.value != "=") {
     equals.pos.fail("Expected assignment = operator")
@@ -385,7 +418,7 @@ private fun parseSingleAssignmentStatement(cursor: TokenCursor, pos: Position): 
 
   val (bodyCursor, body) = parseExpression(equalsCursor)
 
-  return bodyCursor to AssignmentStatement(name, body, pos)
+  return bodyCursor to AssignmentStatement(name, type, body, pos)
 }
 
 private tailrec fun parseDestructureTuplePatterns(cursor: TokenCursor, init: List<String> = emptyList()): Pair<TokenCursor, List<String>> {

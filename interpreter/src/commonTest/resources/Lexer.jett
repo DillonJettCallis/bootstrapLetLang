@@ -1,5 +1,5 @@
 
-private val escapes = Map.of()
+private val escapes: Map[Char, Char] = Map.of()
   .set(char"\\", char"\\")
   .set(char't', char'\t')
   .set(char'r', char'\r')
@@ -60,20 +60,20 @@ data TokenEOF = { pos: Position }
 
 type Token = TokenWord | TokenSymbol | TokenString | TokenNumber | TokenEOF
 
-private val lowerCase = 'abcdefghijklmnopqrstuvwxyz'
-private val upperCase = lowerCase.toUpperCase()
-private val letters = "_$lowerCase$upperCase"
-private val digitStart = '0123456789'
-private val digitContinue = digitStart.append('.')
-private val wordStart = letters
-private val wordContinue = letters.append(digitStart)
-private val quoteChars = "'\"`"
-private val whitespace = '\s\t\r\n'
-private val lineComment = '//'
-private val blockCommentStart = '/*'
-private val blockCommentEnd = '*/'
-private val singletonSymbols = '({[]}),;' // these symbols are always alone. They can start but never continue
-private val mergedSymbols = '=<>!-+/*:.&|' // these symbols merge with one another to form compound symbols
+private val lowerCase: String = 'abcdefghijklmnopqrstuvwxyz'
+private val upperCase: String = lowerCase.toUpperCase()
+private val letters: String = "_$lowerCase$upperCase"
+private val digitStart: String = '0123456789'
+private val digitContinue: String = digitStart.append('.')
+private val wordStart: String = letters
+private val wordContinue: String = letters.append(digitStart)
+private val quoteChars: String = "'\"`"
+private val whitespace: String = '\s\t\r\n'
+private val lineComment: String = '//'
+private val blockCommentStart: String = '/*'
+private val blockCommentEnd: String = '*/'
+private val singletonSymbols: String = '({[]}),;' // these symbols are always alone. They can start but never continue
+private val mergedSymbols: String = '=<>!-+/*:.&|' // these symbols merge with one another to form compound symbols
 
 fun lex(src: String, raw: String): List[Token] = {
   val src = StringCursor{ raw, index: 0, pos: Position{ line: 1, col: 1, src } }
