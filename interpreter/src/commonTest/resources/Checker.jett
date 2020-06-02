@@ -236,63 +236,55 @@ fun checkModule(module: AstModule): List[Scope] = {
   module.files.entries().map({ entry =>
     val (path, astFile) = entry;
 
-    buildFileScope(core, path.last(), astFile, false)
+    buildFileScope(core, path.last(), astFile)
   })
 }
 
-private fun buildFileScope(core: Scope, basePath: String, file: AstFile, includePrivate: Boolean): Scope = {
+private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope = {
   fun qualified(name: String): Scope = {
     return QualifiedType { org: 'this', module: 'this', path: "$basePath.$name" };
   }
 
-  fun qualifiedType(scope: Scope, name: String): Scope = {
-    return scope.setType(name, qualified(name));
+  fun withScope(child: Scope, access: AccessModifier, action: { Scope -> Scope }): Scope = {
+    if (access == Private) {
+      return action(child);
+    } else {
+      val parent = action(child.parent);
+
+      return child{parent};
+    }
   }
 
-  fun buildTypes(includePrivate: Boolean): Scope = {
-    // contains all the TYPES that are in scope, not the VALUES
-    return file.declarations.fold(core.child(), { sum, next =>
+  fun qualifiedType(scope: Scope, access: AccessModifier, name: String): Scope = {
+    return withScope(scope, access, { level => level.setType(name, qualified(name)) });
+  }
 
-      if ( {!includePrivate} && next.access == Private) {
-        return sum;
+  // contains all the TYPES that are in scope, not the VALUES
+  val lookup = file.declarations.fold(core.child().child(), { sum, next =>
+    match (next) {
+      _ when next is AtomDeclare => qualifiedType(sum, next.access, next.name)
+      _ when next is DataDeclare => qualifiedType(sum, next.access, next.name)
+      _ when next is TypeDeclare => qualifiedType(sum, next.access, next.type.name)
+      _ when next is ImportDeclare => {
+        val {org, module, path, name} = next.statement;
+        sum.setType(name, QualifiedType { org, module, path } );
       }
-
-      match (next) {
-        _ when next is AtomDeclare => qualifiedType(sum, next.name)
-        _ when next is DataDeclare => qualifiedType(sum, next.name)
-        _ when next is TypeDeclare => qualifiedType(sum, next.type.name)
-        _ when next is ImportDeclare => {
-          val {org, module, path, name} = next.statement;
-          sum.setType(name, QualifiedType { org, module, path } );
-        }
-        _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
-        _ => sum
-      }
-    });
-  };
-
-  val lookup = buildTypes(true);
-  val names = if (includePrivate) {
-    lookup
-  } else {
-    buildTypes(includePrivate);
-  };
+      _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
+      _ => sum
+    }
+  });
 
   // set up all the VALUES now
-  file.declarations.fold(names, { sum, next =>
-    if ( {!includePrivate} && next.access == Private) {
-      return sum;
-    }
-
+  file.declarations.fold(lookup, { sum, next =>
     match (next) {
-      _ when next is AtomDeclare => sum.setValue(next.name, lookup.getType(next.name))
-      _ when next is DataDeclare => sum.setValue(next.name, ConstructorType{ base: lookup.getType(next.name) })
-      _ when next is FunctionDeclare => sum.setValue(next.func.name, lookup.resolveName( next.func.body.type, next.pos ))
+      _ when next is AtomDeclare => withScope(sum, next.access, { scope => scope.setValue(next.name, lookup.getType(next.name)) })
+      _ when next is DataDeclare => withScope(sum, next.access, { scope => scope.setValue(next.name, ConstructorType{ base: lookup.getType(next.name) }) })
+      _ when next is FunctionDeclare => withScope(sum, next.access, { scope => scope.setValue(next.func.name, lookup.resolveName( next.func.body.type, next.pos )) })
       _ when next is ImportDeclare => {
         val {org, module, path, name} = next.statement;
         sum.setValue(name, QualifiedType { org, module, path } );
       }
-      _ when next is ConstantDeclare => sum.setValue(next.assign.name, lookup.resolveName(next.type, next.pos))
+      _ when next is ConstantDeclare => withScope(sum, next.access, { scope => scope.setValue(next.assign.name, lookup.resolveName(next.type, next.pos)) })
       _ when next is ImplDeclare => {
         if (next.proto != null) {
           next.pos.fail("Protocols are not implemented yet")
@@ -311,7 +303,6 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile, include
           val dataScope = lookup.child().setType("this", qualifiedBase)
 
           next.funcs
-            .filter({ dec => includePrivate || dec.access != Private})
             .fold(sum, { innerSum, funDec =>
               val name = "${baseName}.${funDec.func.name}";
 
@@ -321,7 +312,7 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile, include
               val name = funDec.func.name;
               val type = dataScope.resolveName(funDec.func.body.type, funDec.pos);
 
-              innerSum.setMethod(qualifiedBase, FunctionSignature{ isStatic, name, type }, location)
+              withScope(innerSum, next.access, { scope => scope.setMethod(qualifiedBase, FunctionSignature{ isStatic, name, type }, location) })
           });
         }
       }
