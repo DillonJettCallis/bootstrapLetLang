@@ -47,7 +47,10 @@ fun initCoreScope(): Scope = Scope {
     .set("Boolean", BooleanType)
     .set("Unit", UnitType)
     .set("Nothing", NothingType),
-  values: Map.of()
+  values: Map.of(),
+  methods: Map.of(),
+  protocols: Map.of(),
+  protocolImpls: Map.of()
 }
 
 

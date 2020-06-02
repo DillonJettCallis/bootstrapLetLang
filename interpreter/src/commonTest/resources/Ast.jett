@@ -4,6 +4,8 @@ import this/Type.BooleanType
 import this/Type.FloatType
 import this/Type.StringType
 import this/Type.CharType
+import this/Type.NothingType
+import this/Type.FunctionType
 
 // Private is within the same file
 // Internal is within the same module

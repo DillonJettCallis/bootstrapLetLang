@@ -105,6 +105,18 @@ data ProtocolImplPair = {
   base: QualifiedType
 }
 
+data GlobalTypeDictionary = {
+  types: Map[QualifiedType, Type]
+}
+
+implement GlobalTypeDictionary {
+
+  fun new(): GlobalTypeDictionary = GlobalTypeDictionary{ types: Map.of() }
+
+  fun set(this, qualified: QualifiedType, actual: Type): GlobalTypeDictionary = this { types: this.types.set(qualified, actual) }
+
+}
+
 data Scope = {
   parent: Scope,
   types: Map[String, Type],
@@ -230,18 +242,56 @@ implement Scope {
   }
 }
 
-fun checkModule(module: AstModule): List[Scope] = {
+fun checkModule(module: AstModule): GlobalTypeDictionary = {
   val core = initCoreScope();
 
-  module.files.entries().map({ entry =>
+  val allFilesWithScopes = module.files.entries().map({ entry =>
     val (path, astFile) = entry;
 
-    buildFileScope(core, path.last(), astFile)
-  })
+    val fileScope = buildFileScope(core, path.last(), astFile);
+
+    return (fileScope, astFile);
+  });
+
+  val globalTypeRegistry = allFilesWithScopes.fold(GlobalTypeDictionary.new(), { registry, fileData =>
+    val (fileScope, astFile) = fileData;
+
+    val filledReg = astFile.declarations.fold(registry, { reg, dec =>
+      if (dec.access == Private) {
+        return reg;
+      }
+
+      match (dec) {
+        _ when dec is AtomDeclare => reg.set(fileScope.getType(dec.name), AtomType{name: dec.name})
+        _ when dec is DataDeclare => {
+          val fields = dec.body.entries().map({ decPair =>
+            val (name, type) = decPair;
+
+            return (name, fileScope.resolveName(type, dec.pos))
+          });
+
+          val type = DataType {
+            name: dec.name,
+            fields: Map.from(fields),
+            typeParams: List.of()
+          };
+
+          reg.set(fileScope.getType(dec.name), type)
+        }
+        _ when dec is TypeDeclare => reg.set(fileScope.getType(dec.type.name), fileScope.resolveName(dec.type.value, dec.pos))
+        _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not yet implemented")
+        _ => reg
+      }
+    });
+
+    return filledReg;
+  });
+
+  return globalTypeRegistry;
 }
 
 private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope = {
-  fun qualified(name: String): Scope = {
+  fun qualified(name: String): QualifiedType = {
     return QualifiedType { org: 'this', module: 'this', path: "$basePath.$name" };
   }
 
@@ -320,3 +370,16 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope 
     }
    })
 }
+
+private fun checkDeclarations(fileScope: Scope, file: AstFile): AstFile = {
+  file.declarations.map({ dec =>
+    match (dec) {
+      _ when dec is AtomDeclare => dec
+      _ when dec is DataDeclare => {
+
+      }
+      _ => dec
+    }
+  })
+}
+
