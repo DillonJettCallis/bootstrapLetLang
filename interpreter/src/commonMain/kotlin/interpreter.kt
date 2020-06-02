@@ -63,8 +63,13 @@ private fun buildScope(file: AstFile, core: Scope): Scope {
       is ImplDeclare -> {
         val dataName = (it.base as NamedType).name
         val dataObj = moduleScope[dataName] as JClass
-        val methods = dataObj.instanceMethods + it.funcs.associate { fn -> fn.func.name to fn.func.body.makeJFunction(moduleScope) }
-        moduleScope[dataName] = dataObj.copy(instanceMethods = methods)
+
+        val (statics, instances) = it.funcs.partition { fn -> fn.func.body.args.isEmpty() || fn.func.body.args.first() != "this" }
+
+        moduleScope[dataName] = dataObj.copy(
+          staticMethods = dataObj.staticMethods + statics.associate { fn -> fn.func.name to fn.func.body.makeJFunction(moduleScope) },
+          instanceMethods = dataObj.instanceMethods + instances.associate { fn -> fn.func.name to fn.func.body.makeJFunction(moduleScope) }
+        )
       }
     }
   }
@@ -335,7 +340,15 @@ data class JFunction(val func: (List<JValue>) -> JValue): JValue() {
 
 private inline fun <reified T> JValue.unwrap(): T {
   return when (this) {
-    is JObject -> fields["@src"] as T
+    is JObject -> {
+      val raw = fields["@src"]
+
+      if (raw is T) {
+        raw
+      } else {
+        throw RuntimeException("Invalid unwrap $this")
+      }
+    }
     is JNull -> null as T
     is Wildcard -> Wildcard as T
     else -> {
@@ -356,6 +369,7 @@ private fun Any?.wrap(): JValue {
     JNull
   } else {
     val clazz = when (this) {
+      is JAtom -> return this
       is JNull -> return this
       is JObject -> return this
       is String -> return JObject(mapOf("@src" to this, "size" to this.length), jString)

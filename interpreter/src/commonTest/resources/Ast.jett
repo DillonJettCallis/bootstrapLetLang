@@ -6,8 +6,8 @@ import this/Type.StringType
 import this/Type.CharType
 
 // Private is within the same file
-// Protected is within the same module
-// Internal is within the same organization
+// Internal is within the same module
+// Protected is within the same organization
 // Public is anything anywhere
 atom Public
 atom Protected

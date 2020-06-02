@@ -86,15 +86,49 @@ private data ModuleScope = {
   files: Map[String, (AstFile, Scope)]
 }
 
+data FunctionSignature = {
+  isStatic: Boolean,          // is this a static function?
+  name: String,               // the name of this method
+  type: Type // the fully qualified function type
+}
+
+data MethodMap = {
+  // map the method signature to the full location of the method.
+  // This DOES include protocol implementations for this type
+  // Protocol impls are merged into here AND go into their own protocol map
+  methods: Map[FunctionSignature, QualifiedType]
+}
+
+data ProtocolImplPair = {
+  // A pair of the protocol and the implementation type. Used as a key in maps
+  proto: QualifiedType,
+  base: QualifiedType
+}
+
 data Scope = {
   parent: Scope,
   types: Map[String, Type],
-  values: Map[String, Type]
+  values: Map[String, Type],
+  methods: Map[QualifiedType, MethodMap],
+  protocols: Map[QualifiedType, List[FunctionSignature]],
+  protocolImpls: Map[ProtocolImplPair, MethodMap]
 }
 
 implement Scope {
 
-  fun child(this): Scope = Scope{parent: this, values: Map.of(), types: Map.of()}
+  fun new(): Scope = Scope {
+    parent: null,
+    types: Map.of(),
+    values: Map.of(),
+    methods: Map.of(),
+    protocols: Map.of(),
+    protocolImpls: Map.of()
+  }
+
+  fun child(this): Scope = {
+    val base = Scope.new();
+    base { parent: this }
+  }
 
   fun setType(this, name: String, value: Type): Scope = this{ types: this.types.set(name, value) }
   fun getType(this, name: String): Type = {
@@ -124,6 +158,22 @@ implement Scope {
     } else {
       return mine
     }
+  }
+
+  fun setMethod(this, base: QualifiedType, sig: FunctionSignature, impl: QualifiedType): Scope = {
+    val existingMap = this.methods.get(base)
+
+    val methods = {
+      if (existingMap == null) {
+        Map.of()
+      } else {
+        existingMap.methods
+      }
+    }.set(sig, impl);
+
+    val methods = this.methods.set(base, MethodMap{ methods });
+
+    return this{methods};
   }
 
   fun resolveName(this, init: Type, pos: Position): Type = {
@@ -186,11 +236,11 @@ fun checkModule(module: AstModule): List[Scope] = {
   module.files.entries().map({ entry =>
     val (path, astFile) = entry;
 
-    buildFileScope(core, path.last(), astFile)
+    buildFileScope(core, path.last(), astFile, false)
   })
 }
 
-private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope = {
+private fun buildFileScope(core: Scope, basePath: String, file: AstFile, includePrivate: Boolean): Scope = {
   fun qualified(name: String): Scope = {
     return QualifiedType { org: 'this', module: 'this', path: "$basePath.$name" };
   }
@@ -199,34 +249,50 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope 
     return scope.setType(name, qualified(name));
   }
 
-  // contains all the TYPES that are in scope, not the VALUES
-  val names = file.declarations.fold(core.child(), { sum, next =>
-    match (next) {
-      _ when next is AtomDeclare => qualifiedType(sum, next.name)
-      _ when next is DataDeclare => qualifiedType(sum, next.name)
-      _ when next is TypeDeclare => qualifiedType(sum, next.type.name)
-      _ when next is ImportDeclare => {
-        val {org, module, path, name} = next.statement;
-        sum.setType(name, QualifiedType { org, module, path } );
-      }
-      _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
-      _ => sum
-    }
-  });
+  fun buildTypes(includePrivate: Boolean): Scope = {
+    // contains all the TYPES that are in scope, not the VALUES
+    return file.declarations.fold(core.child(), { sum, next =>
 
-  //debugger;
+      if ( {!includePrivate} && next.access == Private) {
+        return sum;
+      }
+
+      match (next) {
+        _ when next is AtomDeclare => qualifiedType(sum, next.name)
+        _ when next is DataDeclare => qualifiedType(sum, next.name)
+        _ when next is TypeDeclare => qualifiedType(sum, next.type.name)
+        _ when next is ImportDeclare => {
+          val {org, module, path, name} = next.statement;
+          sum.setType(name, QualifiedType { org, module, path } );
+        }
+        _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
+        _ => sum
+      }
+    });
+  };
+
+  val lookup = buildTypes(true);
+  val names = if (includePrivate) {
+    lookup
+  } else {
+    buildTypes(includePrivate);
+  };
 
   // set up all the VALUES now
   file.declarations.fold(names, { sum, next =>
+    if ( {!includePrivate} && next.access == Private) {
+      return sum;
+    }
+
     match (next) {
-      _ when next is AtomDeclare => sum.setValue(next.name, sum.getType(next.name))
-      _ when next is DataDeclare => sum.setValue(next.name, ConstructorType{ base: sum.getType(next.name) })
-      _ when next is FunctionDeclare => sum.setValue(next.func.name, sum.resolveName( next.func.body.type, next.pos ))
+      _ when next is AtomDeclare => sum.setValue(next.name, lookup.getType(next.name))
+      _ when next is DataDeclare => sum.setValue(next.name, ConstructorType{ base: lookup.getType(next.name) })
+      _ when next is FunctionDeclare => sum.setValue(next.func.name, lookup.resolveName( next.func.body.type, next.pos ))
       _ when next is ImportDeclare => {
         val {org, module, path, name} = next.statement;
         sum.setValue(name, QualifiedType { org, module, path } );
       }
-      _ when next is ConstantDeclare => sum.setValue(next.assign.name, sum.resolveName(next.type, next.pos))
+      _ when next is ConstantDeclare => sum.setValue(next.assign.name, lookup.resolveName(next.type, next.pos))
       _ when next is ImplDeclare => {
         if (next.proto != null) {
           next.pos.fail("Protocols are not implemented yet")
@@ -236,16 +302,26 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope 
           }
 
           val baseName = next.base.name;
-          val qualifiedBase = sum.getType(baseName)
+          val qualifiedBase = lookup.getType(baseName)
 
-          if (qualifiedBase == null) {
-            next.pos.fail("Implementations must be in the same file as their data type for now.")
+          if (qualifiedBase isNot QualifiedType) {
+            next.pos.fail("Only QualifiedType is expected here")
           }
 
-          next.funcs.fold(sum, { innerSum, funDec =>
-            val name = "${baseName}.${funDec.func.name}";
+          val dataScope = lookup.child().setType("this", qualifiedBase)
 
-            innerSum.setValue(name, innerSum.child().setType("this", qualifiedBase).resolveName(funDec.func.body.type, next.pos));
+          next.funcs
+            .filter({ dec => includePrivate || dec.access != Private})
+            .fold(sum, { innerSum, funDec =>
+              val name = "${baseName}.${funDec.func.name}";
+
+              val location = qualified(name);
+
+              val isStatic = funDec.func.body.args.size == 0 || funDec.func.body.args.head() != "this";
+              val name = funDec.func.name;
+              val type = dataScope.resolveName(funDec.func.body.type, funDec.pos);
+
+              innerSum.setMethod(qualifiedBase, FunctionSignature{ isStatic, name, type }, location)
           });
         }
       }
@@ -253,4 +329,3 @@ private fun buildFileScope(core: Scope, basePath: String, file: AstFile): Scope 
     }
    })
 }
-
