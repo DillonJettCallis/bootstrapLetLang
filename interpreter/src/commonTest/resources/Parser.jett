@@ -223,18 +223,14 @@ private fun parseImportStatement(cursor: TokenCursor, pos: Position): (TokenCurs
     slash.pos.fail("Expected import package module delimiter '/'")
   }
 
-  fun parseImportPath(cursor: TokenCursor, init: String): (TokenCursor, String, String) = {
+  fun parseImportPath(cursor: TokenCursor, init: List[String]): (TokenCursor, List[String], String) = {
     val (nextCursor, nextToken) = cursor.next()
 
     if (nextToken isNot TokenWord) {
       nextToken.pos.fail("Expected module path in import")
     }
 
-    val result = if (init.isEmpty()) {
-      nextToken.value
-    } else {
-      "$init.${nextToken.value}"
-    }
+    val result = init.add(nextToken.value);
 
     val maybeDot = nextCursor.curr()
 
@@ -255,11 +251,11 @@ private fun parseImportStatement(cursor: TokenCursor, pos: Position): (TokenCurs
 
   val (moduleName, finalCursor, path, name) = if (maybeSlash is TokenSymbol && maybeSlash.value == "/") {
     // this is a fully qualified import, nothing special to do
-    val (finalCursor, path, name) = parseImportPath(maybeSlashCursor, "");
+    val (finalCursor, path, name) = parseImportPath(maybeSlashCursor, List.of());
     (maybeModule.value, finalCursor, path, name)
   } else {
     if (orgName == "this") {
-      val (finalCursor, path, name) = parseImportPath(slashCursor, "");
+      val (finalCursor, path, name) = parseImportPath(slashCursor, List.of());
       ("this", finalCursor, path, name)
     } else {
       maybeSlash.pos.fail("Only a 'this' import can skip the org name")
@@ -604,7 +600,7 @@ private fun parseFunctionParameters(cursor: TokenCursor, init: List[(String, Typ
 
     val ( result, finalCursor, maybeEnd ) = if (name == "this") {
       // allow 'this' anytime, any where. Let the Typechecker enforce validity
-      val result = init.add( (name, NamedType{name}) )
+      val result = init.add( (name, NamedType{name: 'This'}) )
       val (finalCursor, maybeEnd) = nextCursor.next();
       ( result, finalCursor, maybeEnd )
     } else {

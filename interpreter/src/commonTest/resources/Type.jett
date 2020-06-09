@@ -22,23 +22,22 @@ type PrimitiveType
     | NullType
     | UnitType
     | NothingType
-    | ListType
-    | SetType
-    | MapType
 
 data AtomType = { name: String }
 data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType] }
-data ConstructorType = { base: DataType }
 data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType] }
 data FunctionType = { paramTypes: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
 data VarArgsType = { base: Type }
 data TupleType = { paramTypes: List[Type] }
 data GenericType = { base: Type, paramTypes: List[Type] }
 
+// should only hold DateType, ProtocolType or QualifiedType pointing to one of these
+data MetaType = { base: Type }
+
 atom UnknownType
 
 data NamedType = { name: String }
-data QualifiedType = { org: String, module: String, path: String }
+data QualifiedType = { org: String, module: String, path: List[String] }
 data PlaceholderType = { name: String }
 
 data UnionType = { paramTypes: List[Type] }
@@ -64,7 +63,7 @@ type Type
     = PrimitiveType
     | AtomType
     | DataType
-    | ConstructorType
+    | MetaType
     | ProtocolType
     | FunctionType
     | TupleType

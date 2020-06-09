@@ -518,6 +518,9 @@ private val jList = JClass(
       }
 
       JNull
+    },
+    "toString" to JFunction { args ->
+      args[0].unwrap<List<JValue>>().joinToString(", ", "[", "]") { it.toString() }.wrap()
     }
   )
 )
