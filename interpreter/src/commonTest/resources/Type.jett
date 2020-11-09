@@ -8,10 +8,6 @@ atom NullType
 atom UnitType
 atom NothingType
 
-atom ListType
-atom SetType
-atom MapType
-
 type PrimitiveType
     = CharType
     | StringType
@@ -43,7 +39,14 @@ data PlaceholderType = { name: String }
 data UnionType = { paramTypes: List[Type] }
 data IntersectionType = { paramTypes: List[Type] }
 
-fun makeUnionType(left: Type , right: Type ): UnionType = {
+fun makeUnionType(left: Type, right: Type): Type = {
+  // if they are the same do nothing
+  // this way you can pass any random pair in here and only get a Union if you need it
+  // ie: StringType | StringType = StringType
+  if (left == right) {
+    return left;
+  }
+
   val leftList = unwrapUnionType(left)
   val rightList = unwrapUnionType(right)
   UnionType{ paramTypes: leftList.concat(rightList) }
@@ -51,7 +54,12 @@ fun makeUnionType(left: Type , right: Type ): UnionType = {
 
 private fun unwrapUnionType(type: Type): List[Type] = if (type is UnionType) type.paramTypes else List.of(type)
 
-fun makeIntersectionType(left: Type, right: Type): IntersectionType = {
+fun makeIntersectionType(left: Type, right: Type): Type = {
+  // same idea as union
+  if (left == right) {
+    return left;
+  }
+
   val leftList = unwrapIntersectionType(left)
   val rightList = unwrapIntersectionType(right)
   IntersectionTyp{ paramTypes: leftList.concat(rightList) }

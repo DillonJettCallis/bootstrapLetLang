@@ -40,7 +40,7 @@ data class IdentifierExp(val name: String, override val type: Type, override val
 data class BinaryOpExp(val op: String, val left: Expression, val right: Expression, override val type: Type, override val pos: Position): Expression()
 data class UnaryOpExp(val op: String, val ex: Expression, override val type: Type, override val pos: Position): Expression()
 data class BlockExp(val body: List<Statement>, override val type: Type, override val pos: Position): Expression()
-data class CallExp(val func: Expression, val arguments: List<Expression>, override val type: Type, override val pos: Position): Expression()
+data class CallExp(val func: Expression, val arguments: List<Expression>, val typeArguments: List<Type>, override val type: Type, override val pos: Position): Expression()
 data class LambdaExp(val args: List<String>, val body: Expression, override val type: FunctionType, override val pos: Position): Expression()
 data class IfExp(val condition: Expression, val thenExp: Expression, val elseExp: Expression?, override val type: Type, override val pos: Position): Expression()
 data class ReturnExp(val ex: Expression, override val pos: Position): Expression() { override val type = NothingType }

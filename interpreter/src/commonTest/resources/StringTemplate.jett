@@ -52,8 +52,8 @@ private fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: St
     _ when template is StringTemplate => CallExp {
         func: IdentifierExp{name: "@template", type: stringTemplateType, pos},
         arguments: List.of(
-          ListLiteralExp{args: template.strings.map({ value => StringLiteralExp{value, pos} }), type: listOfType(StringType), pos},
-          ListLiteralExp{args: template.values, type: listOfType(AnyType), pos}
+          listOfCall(template.strings.map({ value => StringLiteralExp{value, pos} }), listOfType(StringType), pos),
+          listOfCall(template.values, listOfType(AnyType), pos)
         ),
         type: StringType,
         pos

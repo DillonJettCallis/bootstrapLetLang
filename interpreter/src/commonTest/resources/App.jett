@@ -13,9 +13,9 @@ fun main(args: List[String]): Scope = {
   val files = srcFiles.fold(Map.of(), { sum, next =>
     val raw = next.readText()
     val fullPath = next.path()
-    val lexed = lex(fullPath, raw)
-    val parsed = parse(lexed)
     val modulePath = next.relativePath(srcDir)
+    val lexed = lex(fullPath, raw)
+    val parsed = parse(modulePath, lexed)
 
     sum.set(modulePath, parsed)
   });

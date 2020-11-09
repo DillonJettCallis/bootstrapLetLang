@@ -1,3 +1,6 @@
+import kotlin.math.max
+import kotlin.math.min
+
 private class Scope(val values: MutableMap<String, JValue>, val parent: Scope?) {
 
   operator fun get(key: String): JValue {
@@ -481,6 +484,28 @@ private val jList = JClass(
       val other = rawOther.unwrap<List<JValue>>()
       (self + other).wrap()
     },
+    "zip" to JFunction { args ->
+      val (rawSelf, rawOther) = args
+      val self = rawSelf.unwrap<List<JValue>>()
+      val other = rawOther.unwrap<List<JValue>>()
+
+      self.zip(other).wrap()
+    },
+    "slice" to JFunction {
+      val (rawList, rawBegin, rawEnd) = it;
+      val list = rawList.unwrap<List<JValue>>()
+      val begin = rawBegin.unwrap<Int>()
+      val end = rawEnd.unwrap<Int>()
+
+      list.subList(begin, end).wrap()
+    },
+    "findIndex" to JFunction {
+      val (rawList, rawFunc) = it;
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      list.indexOfFirst { item -> func(listOf(item)).unwrap<Boolean>() }.wrap()
+    },
     "filter" to JFunction {
       val (rawList, rawFunc) = it
       val list = rawList.unwrap<List<JValue>>()
@@ -500,6 +525,34 @@ private val jList = JClass(
       }
 
       result.wrap()
+    },
+    "accumulate" to JFunction { args ->
+      val (rawList, rawInit, rawFunc) = args
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      var sum = rawInit
+
+      val finalList = list.map {
+        val (nextSum, result) = func(listOf(sum, it)).unwrap<List<JValue>>()
+        sum = nextSum
+        result
+      }.wrap()
+
+      listOf(sum, finalList).wrap()
+    },
+    "scan" to JFunction { args ->
+      val (rawList, rawInit, rawFunc) = args
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      var sum = rawInit
+
+      list.map {
+        val (nextSum, result) = func(listOf(sum, it)).unwrap<List<JValue>>()
+        sum = nextSum
+        result
+      }.wrap()
     },
     "fold" to JFunction {
       val (rawList, rawInit, rawFunc) = it
@@ -575,6 +628,11 @@ private val jMap = JClass(
     },
     "entries" to JFunction { args ->
       args[0].unwrap<Map<JValue, JValue>>().entries.map { it.toPair().toList().wrap() }.wrap()
+    },
+    "concat" to JFunction { args ->
+      val (rawFirst, rawSecond) = args
+      val result = rawFirst.unwrap<Map<JValue, JValue>>() + rawSecond.unwrap<Map<JValue, JValue>>()
+      result.wrap()
     }
   )
 )

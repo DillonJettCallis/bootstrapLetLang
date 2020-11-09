@@ -95,10 +95,10 @@ implement TokenCursor {
 
 }
 
-fun parse(tokens: List[Token]): AstFile = {
+fun parse(path: List[String], tokens: List[Token]): AstFile = {
   val cursor = TokenCursor{ tokens, index: 0 }
 
-  parseFile(cursor, List.of())
+  parseFile(path, cursor, List.of())
 }
 
 fun parseExpressionOnly(tokens: List[Token]): Expression = {
@@ -111,7 +111,7 @@ fun parseExpressionOnly(tokens: List[Token]): Expression = {
 
 private fun parseFile(cursor: TokenCursor, declarations: List[Declaration]): AstFile = {
   if (cursor.isEmpty()) {
-    return AstFile{declarations}
+    return AstFile{ path, declarations }
   } else {
     val (nextCursor, token) = cursor.next()
 
@@ -163,7 +163,7 @@ private fun parseConstDeclare(cursor: TokenCursor, access: AccessModifier, pos: 
     assign.pos.fail("Constants must declare their type")
   }
 
-  return (assignCursor, ConstantDeclare{assign, type, access, pos})
+  return (assignCursor, ConstantDeclare{assign, access, pos})
 }
 
 private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): (TokenCursor, AtomDeclare) = {
@@ -286,7 +286,7 @@ private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
     equals.pos.fail("Expected data declaration open bracket")
   }
 
-  val (finalCursor, fields) = parseDataField(openCursor, Map.of())
+  val (finalCursor, fields) = parseDataField(openCursor, Map.of[String, Type]())
 
   return (finalCursor, DataDeclare{name, body: fields, access, pos})
 }
@@ -813,7 +813,7 @@ private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
       val (rightCursor, rightExp) = parseCall(leftCursor.skip())
 
       val newLeft = match (rightExp) {
-        _ when rightExp is IdentifierExp => BinaryOpExp {op: maybeOp.value, left, right: rightExp, type: UnknownType, pos: maybeOp.pos }
+        _ when rightExp is IdentifierExp => FieldAccessExp {base: left, name: rightExp.name, type: UnknownType, pos: maybeOp.pos }
         _ when rightExp is CallExp => {
           val callRight = rightExp.func
 
@@ -821,11 +821,7 @@ private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
             maybeOp.pos.fail("Expected identifier to right of access op")
           }
 
-          val right = BinaryOpExp { op: maybeOp.value, left, right: callRight, type: UnknownType, pos: maybeOp.pos }
-
-          val newCall = rightExp{ func: right }
-
-          newCall
+          MethodCallExp { base: left, name: callRight.name, arguments: rightExp.arguments, typeArguments: rightExp.typeArguments, type: UnknownType, pos: maybeOp.pos }
         }
         _ when rightExp is ConstructExp => {
           val constructRight = rightExp.base
@@ -834,7 +830,7 @@ private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
             maybeOp.pos.fail("Expected identifier to right of access op")
           }
 
-          val right = BinaryOpExp{ op: maybeOp.value, left, right: constructRight, type: UnknownType, pos: maybeOp.pos }
+          val right = FieldAccessExp{ base: left, name: constructRight.name, type: UnknownType, pos: maybeOp.pos }
 
           val newCall = rightExp{ base: right }
 
@@ -859,8 +855,28 @@ private fun parseCall(cursor: TokenCursor): (TokenCursor, Expression) = {
 
   val maybeOpen = callCursor.curr()
 
+  val (genCursor, genArguments) = if (maybeOpenBracket is TokenSymbol && maybeOpenBracket.value == "[") {
+    val (closeCursor, args) = parseTypeList(callCursor.skip())
+
+    if (args.isEmpty()) {
+      maybeOpenBracket.pos.fail("Expected type arguments")
+    }
+
+    val (finalCursor, closeBracket) = closeCursor.next()
+
+    if (closeBracket is TokenSymbol && closeBracket.value == "]") {
+      (finalCursor, args)
+    } else {
+      closeBracket.pos.fail("Expected end of type arguments")
+    }
+  } else {
+    (callCursor, emptyList())
+  }
+
+  val maybeOpen = genCursor.curr()
+
   if (maybeOpen is TokenSymbol && maybeOpen.value == "(") {
-    val openCursor = callCursor.skip()
+    val openCursor = genCursor.skip()
     val maybeClose = openCursor.curr()
 
     val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
@@ -869,7 +885,7 @@ private fun parseCall(cursor: TokenCursor): (TokenCursor, Expression) = {
       parseCallArguments(openCursor, List.of())
     }
 
-    return (closeCursor, CallExp{func: base, arguments: args, type: UnknownType, pos: base.pos})
+    return (closeCursor, CallExp{func: base, arguments: args, typeArguments: genArguments, type: UnknownType, pos: base.pos})
   } else {
     return (callCursor, base)
   }

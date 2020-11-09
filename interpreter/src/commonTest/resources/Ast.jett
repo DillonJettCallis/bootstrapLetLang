@@ -18,18 +18,21 @@ atom Private
 
 type AccessModifier = Public | Protected | Internal | Private
 
-type Expression
+type LiteralExpression
     = NullLiteralExp
     | BooleanLiteralExp
     | NumberLiteralExp
     | StringLiteralExp
-    | ListLiteralExp
     | CharLiteralExp
-    | IdentifierExp
+
+type Expression
+    = IdentifierExp
     | BinaryOpExp
     | UnaryOpExp
     | BlockExp
+    | FieldAccessExp
     | CallExp
+    | MethodCallExp
     | LambdaExp
     | IfExp
     | ReturnExp
@@ -62,17 +65,19 @@ data NullLiteralExp = { pos: Position, type: Type }
 data BooleanLiteralExp = { value: Boolean, pos: Position, type: BooleanType }
 data NumberLiteralExp = { value: String, pos: Position, type: FloatType }
 data StringLiteralExp = { value: String, pos: Position, type: StringType }
-data ListLiteralExp = { args: List[Expression], pos: Position, type: Type }
 data CharLiteralExp = { value: Char, pos: Position, type: CharType }
 data IdentifierExp = { name: String, pos: Position, type: Type }
 data BinaryOpExp = { op: String, left: Expression, right: Expression, pos: Position, type: Type }
 data UnaryOpExp = { op: String, ex: Expression, pos: Position, type: Type }
 data BlockExp = { body: List[Statement], pos: Position, type: Type }
-data CallExp = { func: Expression, arguments: List[Expression], pos: Position, type: Type }
+data FieldAccessExp = { base: Expression, name: String, pos: Position, type: Type }
+data CallExp = { func: Expression, arguments: List[Expression], typeArguments: List[Expression], pos: Position, type: Type }
+data MethodCallExp = { base: Expression, name: String, arguments: List[Expression], pos: Position, type: Type }
 data LambdaExp = { args: List[String], body: Expression, pos: Position, type: FunctionType }
 data IfExp = { condition: Expression, thenExp: Expression, elseExp: Expression, pos: Position, type: Type }
 data ReturnExp = { ex: Expression, pos: Position, type: NothingType }
 data ThrowExp = { ex: Expression, pos: Position, type: NothingType }
+data WrapProtocolExp = { base: Expression, pos: Position, type: QualifiedType } // take the base exp and wrap it in it's impl for this type proto
 data ConstructExp = { base: Expression, values: List[(String, Expression)], pos: Position, type: Type }
 data ConstructTupleExp = { values: List[Expression], pos: Position, type: Type }
 data MatchExp = { base: Expression, patterns: List[MatchPattern], type: Type, pos: Position }
@@ -94,10 +99,10 @@ data DataDeclare = { name: String, body: Map[String, Type], access: AccessModifi
 data TypeDeclare = { type: TypeStatement, access: AccessModifier, pos: Position }
 data FunctionDeclare = { func: FunctionStatement, access: AccessModifier, pos: Position }
 data ImportDeclare = { statement: ImportStatement, access: AccessModifier, pos: Position }
-data ConstantDeclare = { assign: AssignmentStatement, type: Type, access: AccessModifier, pos: Position }
+data ConstantDeclare = { assign: AssignmentStatement, access: AccessModifier, pos: Position }
 data ProtocolDeclare = { name: String, funcs: List[(String, Type)], access: AccessModifier, pos: Position }
 data ImplDeclare = { base: Type, proto: Type, funcs: List[FunctionDeclare], access: AccessModifier, pos: Position }
 
-data AstFile = { declarations: List[Declaration] }
+data AstFile = { path: List[String], declarations: List[Declaration] }
 
 data AstModule = { files: Map[List[String], AstFile] }

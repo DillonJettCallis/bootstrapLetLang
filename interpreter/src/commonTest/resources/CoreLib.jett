@@ -32,7 +32,16 @@ import this/Type.stringTemplateType
 
 import this/Checker.Scope
 
+val listOfQualified: QualifiedType = QualifiedType { org: 'core', module: 'core', path: List.of('List', 'of') }
 
+fun listOfCall(arguments: List[Expression], type: Type, pos: Position): CallExp = CallExp {
+  func: BinaryOpExp{ op: '.', left: IdentifierExp{ name: 'List', type: listOfQualified, pos }, right: IdentifierExp{ name: 'of', pos, type: UnknownType } },
+  arguments,
+  pos,
+  type
+}
+
+val listType: DataType = DataType { name: "List", fields: Map.of( ("size", IntType) ), typeParams: List.of(PlaceholderType{name: "Item"}) }
 
 fun initCoreScope(): Scope = Scope {
   parent: null,

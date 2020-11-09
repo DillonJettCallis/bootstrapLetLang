@@ -457,7 +457,7 @@ private tailrec fun parseDestructureDataPatterns(cursor: TokenCursor, init: List
   val maybeColon = firstCursor.curr()
 
   val (baseCursor, baseName) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
-    val (baseCursor, baseToken) = firstCursor.next()
+    val (baseCursor, baseToken) = firstCursor.skip().next()
 
     if (baseToken !is TokenWord) {
       baseToken.pos.fail("Expected identifier in data destructure assignment")
@@ -762,10 +762,30 @@ private fun parseAccessExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 private fun parseCall(cursor: TokenCursor): Pair<TokenCursor, Expression> {
   val (callCursor, base) = parseConstruct(cursor)
 
-  val maybeOpen = callCursor.curr()
+  val maybeOpenBracket = callCursor.curr()
+
+  val (genCursor, genArguments) = if (maybeOpenBracket is TokenSymbol && maybeOpenBracket.value == "[") {
+    val (closeCursor, args) = parseTypeList(callCursor.skip())
+
+    if (args.isEmpty()) {
+      maybeOpenBracket.pos.fail("Expected type arguments")
+    }
+
+    val (finalCursor, closeBracket) = closeCursor.next()
+
+    if (closeBracket is TokenSymbol && closeBracket.value == "]") {
+      finalCursor to args
+    } else {
+      closeBracket.pos.fail("Expected end of type arguments")
+    }
+  } else {
+    callCursor to emptyList()
+  }
+
+  val maybeOpen = genCursor.curr()
 
   return if (maybeOpen is TokenSymbol && maybeOpen.value == "(") {
-    val openCursor = callCursor.skip()
+    val openCursor = genCursor.skip()
     val maybeClose = openCursor.curr()
 
     val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
@@ -774,7 +794,7 @@ private fun parseCall(cursor: TokenCursor): Pair<TokenCursor, Expression> {
       parseCallArguments(openCursor)
     }
 
-    closeCursor to CallExp(base, args, UnknownType, base.pos)
+    closeCursor to CallExp(base, args, genArguments, UnknownType, base.pos)
   } else {
     callCursor to base
   }
