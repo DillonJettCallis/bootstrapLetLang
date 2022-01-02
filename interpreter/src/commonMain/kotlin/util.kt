@@ -1,5 +1,9 @@
 expect class FileImpl(path: String) {
 
+  companion object {
+    val systemFileSeparator: Char
+  }
+
   val path: String
 
   fun extension(): String
@@ -11,5 +15,5 @@ expect class FileImpl(path: String) {
 }
 
 fun FileImpl.relativePath(other: FileImpl): List<String> {
-  return path.substringAfter(other.path).trimStart('/').substringBeforeLast(".").split("/")
+  return path.substringAfter(other.path).trimStart(FileImpl.systemFileSeparator).substringBeforeLast(".").split(FileImpl.systemFileSeparator)
 }

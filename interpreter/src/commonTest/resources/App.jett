@@ -22,17 +22,17 @@ fun main(args: List[String]): Scope = {
 
   val module = AstModule { files }
 
-  val checker = checkModule(module)
+//  val checker = checkModule(module)
 
-  checker.forEach({pair =>
-    val (scope) = pair;
+//  checker.forEach({pair =>
+//    val (scope) = pair;
 
-    scope.typeDefs.entries().forEach({ defPair =>
-      val (qualified, type) = defPair;
+//    scope.typeDefs.entries().forEach({ defPair =>
+//      val (qualified, type) = defPair;
 
-      println("${qualified.path} => ${type}")
-    })
-  });
+//      println("${qualified.path} => ${type}")
+//    })
+//  });
 
-  return checker;
+  return module;
 }

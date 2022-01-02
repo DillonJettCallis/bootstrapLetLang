@@ -71,6 +71,10 @@ actual class FileImpl actual constructor(actual val path: String) {
     }
   }
 
+  actual companion object {
+    actual val systemFileSeparator: Char = '/'
+  }
+
 
 }
 
