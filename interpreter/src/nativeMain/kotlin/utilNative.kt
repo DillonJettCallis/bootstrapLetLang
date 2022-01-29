@@ -71,6 +71,10 @@ actual class FileImpl actual constructor(actual val path: String) {
     }
   }
 
+  actual fun writeText(body: String) {
+    TODO("Actual native write not implemented yet")
+  }
+
   actual companion object {
     actual val systemFileSeparator: Char = '/'
   }

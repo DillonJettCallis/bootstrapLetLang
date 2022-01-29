@@ -19,6 +19,10 @@ actual class FileImpl(private val file: File) {
     return file.readText()
   }
 
+  actual fun writeText(body: String) {
+    file.writeText(body)
+  }
+
   actual companion object {
     actual val systemFileSeparator: Char = File.separatorChar
   }

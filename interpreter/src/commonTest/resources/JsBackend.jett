@@ -1,0 +1,276 @@
+import this/Ast.AccessModifier
+import this/Ast.Public
+import this/Ast.Protected
+import this/Ast.Internal
+import this/Ast.Private
+
+import this/Ast.NullLiteralExp
+import this/Ast.BooleanLiteralExp
+import this/Ast.NumberLiteralExp
+import this/Ast.StringLiteralExp
+import this/Ast.ListLiteralExp
+import this/Ast.CharLiteralExp
+import this/Ast.IdentifierExp
+import this/Ast.BinaryOpExp
+import this/Ast.UnaryOpExp
+import this/Ast.BlockExp
+import this/Ast.CallExp
+import this/Ast.LambdaExp
+import this/Ast.IfExp
+import this/Ast.ReturnExp
+import this/Ast.ThrowExp
+import this/Ast.ConstructExp
+import this/Ast.ConstructTupleExp
+import this/Ast.MatchExp
+import this/Ast.Expression
+import this/Ast.Statement
+import this/Ast.ExpressionStatement
+import this/Ast.AssignmentStatement
+import this/Ast.FunctionStatement
+import this/Ast.TypeStatement
+import this/Ast.ImportStatement
+import this/Ast.DeconstructDataStatement
+import this/Ast.DeconstructTupleStatement
+import this/Ast.DebuggerStatement
+import this/Ast.Declaration
+import this/Ast.AtomDeclare
+import this/Ast.DataDeclare
+import this/Ast.TypeDeclare
+import this/Ast.FunctionDeclare
+import this/Ast.ImportDeclare
+import this/Ast.ConstantDeclare
+import this/Ast.ProtocolDeclare
+import this/Ast.ImplDeclare
+import this/Ast.MatchPattern
+import this/Ast.AstModule
+import this/Ast.AstFile
+
+val jsKeywords: Set[String] = Set.of('new', 'async')
+
+fun js(module: AstModule, dir: File): Unit = {
+  module.files.entries().forEach({ pair =>
+    val (path, ast) = pair;
+
+    val file = File.from(dir.path().append('/').append(path.last().append('.js')));
+
+    val contents = writeAst(ast);
+
+    file.writeText(contents);
+  });
+}
+
+private fun writeAst(ast: AstFile): String = {
+  ast.declarations.join("\n", { dec =>
+    match (dec) {
+      _ when dec is AtomDeclare => return writeAtomDeclare(dec)
+      _ when dec is DataDeclare => return writeDataDeclare(dec)
+      _ when dec is TypeDeclare => ''
+      _ when dec is FunctionDeclare => return writeFunctionDeclare(dec)
+      _ when dec is ImportDeclare => return writeImportDeclare(dec)
+      _ when dec is ConstantDeclare => return writeConstantDeclare(dec)
+      _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not implemented yet")
+      _ when dec is ImplDeclare => return writeImplDeclare(dec)
+    }
+  });
+}
+
+private fun accessor(access: AccessModifier): String = {
+  if (access == Private) { "" } else { "export " }
+}
+
+private fun writeAtomDeclare(atom: AtomDeclare): String = {
+  "${ accessor(atom.access) }const ${atom.name} = Symbol('${atom.name}');"
+}
+
+private fun writeDataDeclare(data: DataDeclare): String = {
+  val defaults = data.body.keys().join(',', { name => '${name}: null' });
+
+  "${ accessor(data.access) } const ${data.name} = Record({ $defaults });"
+}
+
+private fun writeImportDeclare(imp: ImportDeclare): String = {
+  val path = imp.statement.path.join('/', {next => next});
+
+  "import { ${imp.statement.name} } from '${path}';"
+}
+
+private fun writeConstantDeclare(const: ConstantDeclare): String = {
+  return "${ accessor(const.access) }${ writeStatement(const.assign) }"
+}
+
+private fun writeImplDeclare(impl: ImplDeclare): String = {
+  if (impl.proto != null) {
+    impl.pos.fail("Protocols have not been implemented yet");
+  }
+
+  return impl.funcs.join("\n", { next =>
+    return "${impl.base.name}.prototype.${writeIdentifier(next.func.name)} = ${writeFunctionStatement(next.func)};"
+  })
+}
+
+private fun writeFunctionDeclare(funcDec: FunctionDeclare): String = {
+  return accessor(funcDec.access).append(writeFunctionStatement(funcDec.func))
+}
+
+private fun writeFunctionStatement(func: FunctionStatement): String = {
+  val argNames = func.body.args.join(', ', {next => next});
+
+  return "function ${writeIdentifier(func.name)} (${argNames}) {
+    return ${writeExpression(func.body.body)};
+  }"
+}
+
+private fun writeExpression(ex: Expression): String = {
+  match(ex) {
+    _ when ex is NullLiteralExp => "null"
+    _ when ex is BooleanLiteralExp => if (ex.value) "true" else "false"
+    _ when ex is NumberLiteralExp => ex.value
+    _ when ex is StringLiteralExp => return writeStringLiteralExp(ex)
+    _ when ex is ListLiteralExp => return writeListLiteralExp(ex)
+    _ when ex is CharLiteralExp => "'${ex.value}'"
+    _ when ex is IdentifierExp => writeIdentifier(ex.name)
+    _ when ex is BinaryOpExp => return writeBinaryOpExp(ex)
+    _ when ex is UnaryOpExp => return "${ex.op}${writeExpression(ex.ex)}"
+    _ when ex is BlockExp => return writeBlockExp(ex)
+    _ when ex is CallExp => return writeCallExp(ex)
+    _ when ex is LambdaExp => return writeLambdaExp(ex)
+    _ when ex is IfExp => return writeIfExp(ex)
+    _ when ex is ReturnExp => return writeReturnExp(ex)
+    _ when ex is ThrowExp => return writeThrowExp(ex)
+    _ when ex is ConstructExp => return writeConstructExp(ex)
+    _ when ex is ConstructTupleExp => return writeConstructTupleExp(ex)
+    _ when ex is MatchExp => return writeMatchExp(ex)
+  }
+}
+
+private fun writeIdentifier(id: String): String = {
+  if (jsKeywords.contains(id)) {
+    "__${id}"
+  } else {
+    id
+  }
+}
+
+private fun writeStringLiteralExp(str: StringLiteralExp): String = {
+  val escaped = str.value
+    .replace(`'`, `\\'`) // escape quotes
+    .replace('\n', '\\n') // escape new lines;
+
+  "'$escaped'"
+}
+
+private fun writeListLiteralExp(list: ListLiteralExp): String = {
+  return "List([${list.args.join(', ', writeExpression)}])"
+}
+
+private fun writeBinaryOpExp(ex: BinaryOpExp): String = {
+  return match (ex.op) {
+    'is' => '${writeExpression(ex.left)} instanceof ${writeExpression(ex.right)}'
+    'isNot' => '!(${writeExpression(ex.left)} instanceof ${writeExpression(ex.right)})'
+    _ => '${writeExpression(ex.left)} ${ex.op} ${writeExpression(ex.right)}'
+  }
+}
+
+private fun writeBlockExp(block: BlockExp): String = {
+  return 'do {
+    ${block.body.join("\n", writeStatement)}
+  }'
+}
+
+private fun writeStatement(state: Statement): String = {
+  match (state) {
+    _ when state is ExpressionStatement => return writeExpression(state.ex).append(";")
+    _ when state is AssignmentStatement => return "const ${state.name} = ${writeExpression(state.body)};"
+    _ when state is FunctionStatement => return writeFunctionStatement(state)
+    _ when state is TypeStatement => ""
+    _ when state is ImportStatement => state.pos.fail("Local imports are not supported in js backend yet")
+    _ when state is DeconstructDataStatement => return writeDeconstructDataStatement(state)
+    _ when state is DeconstructTupleStatement => return writeDeconstructTupleStatement(state)
+    _ when state is DebuggerStatement => "debugger;"
+  }
+}
+
+private fun writeDeconstructDataStatement(decon: DeconstructDataStatement): String = {
+  val vars = decon.values.join(", ", { pair =>
+    val (inner, outer) = pair;
+
+    inner.append(": ").append(outer)
+  });
+
+  return "const {$vars} = ${writeExpression(decon.base)};"
+}
+
+private fun writeDeconstructTupleStatement(decon: DeconstructTupleStatement): String = {
+  val vars = decon.names.join(", ", { name => name });
+
+  return "const [$vars] = ${writeExpression(decon.base)};"
+}
+
+private fun writeCallExp(call: CallExp): String = {
+  return "${writeExpression(call.func)}(${call.arguments.join(', ', writeExpression)})"
+}
+
+private fun writeLambdaExp(lambda: LambdaExp): String = {
+  val argNames = lambda.args.join(', ', {next => next});
+
+  return "(($argNames) => ${writeExpression(lambda.body)})"
+}
+
+private fun writeIfExp(ifEx: IfExp): String = {
+  return "( (${writeExpression(ifEx.condition)}) ? (${writeExpression(ifEx.thenExp)}) : (${if (ifEx.elseExp == null) 'null' else writeExpression(ifEx.elseExp)}) )"
+}
+
+private fun writeReturnExp(ret: ReturnExp): String = {
+  return "return (${writeExpression(ret.ex)})"
+}
+
+private fun writeThrowExp(th: ThrowExp): String = {
+  return "throw (${writeExpression(th.ex)})"
+}
+
+private fun writeConstructExp(const: ConstructExp): String = {
+  val params = const.values.join(", ", { pair =>
+    val (key, value) = pair;
+
+    "${key}: ${writeExpression(value)}"
+  });
+
+  return "__construct(${writeExpression(const.base)}, {$params})"
+}
+
+private fun writeConstructTupleExp(const: ConstructTupleExp): String = {
+  val params = const.values.join(", ", { value =>
+    "${writeExpression(value)}"
+  });
+
+  "List([$params])"
+}
+
+private fun writeMatchExp(matchEx: MatchExp): String = {
+  val baseStr = writeExpression(matchEx.base);
+
+  val patterns = matchEx.patterns.join(" else", { pattern =>
+    val basePattern = writeExpression(pattern.base);
+    val guard = if (pattern.guard == null) "" else " && (${writeExpression(pattern.guard)})";
+    val body = writeExpression(pattern.body);
+
+    "
+    if (base.equals( $basePattern ) $guard ) {
+     result = ($body);
+    }"
+   });
+
+'
+do {
+  const base = $baseStr;
+  const _ = base;
+  let result;
+
+  $patterns else {
+    throw new Error("No match found");
+  }
+
+  result;
+}
+'
+}

@@ -297,6 +297,8 @@ implement Scope {
   }
 
   fun access(this, rawBase: QualifiedType, name: String, pos: Position): (AccessType, QualifiedType) = {
+    debugger;
+
     val base = this.getTypeDef(rawBase);
 
     if (base == null) {

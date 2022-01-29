@@ -12,6 +12,8 @@ expect class FileImpl(path: String) {
 
   fun readText(): String
 
+  fun writeText(body: String)
+
 }
 
 fun FileImpl.relativePath(other: FileImpl): List<String> {

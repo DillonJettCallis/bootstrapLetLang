@@ -49,6 +49,8 @@ data class ConstructExp(val base: Expression, val values: List<Pair<String, Expr
 data class ConstructTupleExp(val values: List<Expression>, override val type: Type, override val pos: Position): Expression()
 data class MatchExp(val base: Expression, val patterns: List<MatchPattern>, override val type: Type, override val pos: Position): Expression()
 
+data class ByteExpression(val code: List<Bytecode>, override val type: Type, override val pos: Position): Expression()
+
 data class ExpressionStatement(val ex: Expression, override val pos: Position): Statement()
 data class AssignmentStatement(val name: String, val declaredType: Type, val body: Expression, override val pos: Position): Statement()
 data class FunctionStatement(val name: String, val body: LambdaExp, override val pos: Position): Statement()

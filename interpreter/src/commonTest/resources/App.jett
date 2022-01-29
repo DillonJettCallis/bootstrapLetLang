@@ -4,6 +4,7 @@ import this/Checker.checkModule
 import this/Checker.Scope
 import this/Ast.AstModule
 import this/Ast.AstFile
+import this/JsBackend.js
 
 fun main(args: List[String]): Scope = {
   val srcDir = File.from(args.get(0));
@@ -20,7 +21,11 @@ fun main(args: List[String]): Scope = {
     sum.set(modulePath, parsed)
   });
 
-  val module = AstModule { files }
+  val module = AstModule { files };
+
+  val jsDir = File.from('build/test/js')
+
+  js(module, jsDir);
 
 //  val checker = checkModule(module)
 
