@@ -1,9 +1,9 @@
 plugins {
-  kotlin("multiplatform") version "1.3.70"
+  kotlin("multiplatform") version "1.8.0"
 }
 
 repositories {
-  jcenter()
+  mavenCentral()
 }
 
 kotlin {
