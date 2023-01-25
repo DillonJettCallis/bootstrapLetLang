@@ -27,7 +27,7 @@ fun main(args: List[String]): Scope = {
   checker.forEach({pair =>
     val (scope) = pair;
 
-    scope.typeDefs.entries().forEach({ defPair =>
+    scope.parent.typeDefs.entries().forEach({ defPair =>
       val (qualified, type) = defPair;
 
       println("${qualified.path} => ${type}")

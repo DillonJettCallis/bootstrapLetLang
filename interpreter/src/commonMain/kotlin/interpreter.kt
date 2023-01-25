@@ -60,7 +60,7 @@ private fun buildScope(file: AstFile, core: Scope): Scope {
       is DataDeclare -> moduleScope[it.name] = JClass(it.name, emptyMap(), emptyMap())
       is TypeDeclare -> moduleScope[it.type.name] = JAtom(it.type.name)
       is ImportDeclare -> {}
-      is ConstantDeclare -> moduleScope[it.assign.name] = interpret(it.assign.body, moduleScope)
+      is ConstantDeclare -> moduleScope[it.assign.name] = JConst { interpret(it.assign.body, moduleScope) }
       is ProtocolDeclare -> TODO()
       is FunctionDeclare -> moduleScope[it.func.name] = it.func.body.makeJFunction(moduleScope)
       is ImplDeclare -> {
@@ -102,7 +102,15 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
     is StringLiteralExp -> ex.value.wrap()
     is CharLiteralExp -> ex.value.wrap()
     is ListLiteralExp -> ex.args.map { interpret(it, scope) }.wrap()
-    is IdentifierExp -> scope[ex.name]
+    is IdentifierExp -> {
+      val raw = scope[ex.name]
+
+      if (raw is JConst) {
+        raw.value
+      } else {
+        raw
+      }
+    }
     is BinaryOpExp -> {
       val left = interpret(ex.left, scope)
 
@@ -325,6 +333,12 @@ data class JTrampoline(val func: () -> JValue): JValue() {
 data class JClass(val name: String, val instanceMethods: Map<String, JFunction>, val staticMethods: Map<String, JFunction>): JValue() {
   override fun toString() = name
 }
+
+class JConst(base: () -> JValue): JValue() {
+  val value by lazy { base() }
+  override fun toString() = "<Const>"
+}
+
 data class JObject(val fields: Map<String, Any?>, val jClass: JClass): JValue() {
   override fun toString(): String {
     return if (jClass.instanceMethods.containsKey("toString")) {

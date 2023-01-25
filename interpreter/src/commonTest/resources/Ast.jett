@@ -6,6 +6,7 @@ import this/Type.StringType
 import this/Type.CharType
 import this/Type.NothingType
 import this/Type.FunctionType
+import this/Type.QualifiedType
 
 // Private is within the same file
 // Internal is within the same module

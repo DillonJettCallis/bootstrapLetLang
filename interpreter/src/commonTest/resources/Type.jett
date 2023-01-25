@@ -7,6 +7,9 @@ atom AnyType
 atom NullType
 atom UnitType
 atom NothingType
+atom ListType
+atom SetType
+atom MapType
 
 type PrimitiveType
     = CharType

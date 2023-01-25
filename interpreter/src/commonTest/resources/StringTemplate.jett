@@ -1,6 +1,5 @@
 import this/Ast.CallExp
 import this/Ast.IdentifierExp
-import this/Ast.ListLiteralExp
 import this/Ast.StringLiteralExp
 import this/Ast.CharLiteralExp
 
@@ -19,6 +18,8 @@ import this/Type.AnyType
 import this/Type.UnknownType
 import this/Type.listOfType
 import this/Type.stringTemplateType
+
+import this/CoreLib.listOfCall
 
 
 data StringTemplateString = { raw: String }

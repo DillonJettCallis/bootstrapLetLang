@@ -29,6 +29,14 @@ import this/Type.makeUnionType
 import this/Type.makeIntersectionType
 import this/Type.listOfType
 import this/Type.stringTemplateType
+import this/Type.QualifiedType
+
+import this/Ast.IdentifierExp
+import this/Ast.BinaryOpExp
+import this/Ast.CallExp
+import this/Ast.Expression
+
+import this/Lexer.Position
 
 import this/Checker.Scope
 

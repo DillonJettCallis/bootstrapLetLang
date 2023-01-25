@@ -10,7 +10,6 @@ import this/Ast.NullLiteralExp
 import this/Ast.BooleanLiteralExp
 import this/Ast.NumberLiteralExp
 import this/Ast.StringLiteralExp
-import this/Ast.ListLiteralExp
 import this/Ast.CharLiteralExp
 import this/Ast.IdentifierExp
 import this/Ast.BinaryOpExp
@@ -46,6 +45,7 @@ import this/Ast.ImplDeclare
 import this/Ast.MatchPattern
 import this/Ast.AstModule
 import this/Ast.AstFile
+import this/Ast.FieldAccessExp
 
 import this/Type.PrimitiveType
 import this/Type.AtomType
@@ -242,10 +242,10 @@ implement Scope {
         init{resultType, paramTypes}
       }
       _ when init is VarArgsType => VarArgsType{base: this.fullyQualify(init.base, pos)}
-      _ when init is GenericType => GenericType{ base: this.fullyQualify(init.base), paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is TupleType => TupleType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is UnionType => UnionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is IntersectionType => IntersectionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
+      _ when init is GenericType => GenericType{ base: this.fullyQualify(init.base, pos), paramTypes: init.paramTypes.map({type => this.fullyQualify(type, pos)}) }
+      _ when init is TupleType => TupleType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type, pos)}) }
+      _ when init is UnionType => UnionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type, pos)}) }
+      _ when init is IntersectionType => IntersectionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type, pos)}) }
       _ when init is PrimitiveType => init
       _ => pos.fail("Unknown type")
     }
@@ -444,7 +444,7 @@ implement Scope {
   }
 }
 
-fun checkModule(module: AstModule): List[AstFile] = {
+fun checkModule(module: AstModule): List[(Scope, AstFile)] = {
   val core = initCoreScope();
 
   val allFilesWithScopes = module.files.entries().map({ entry =>
@@ -538,7 +538,7 @@ private fun buildFileScope(core: Scope, basePath: List[String], file: AstFile): 
         val {org, module, path, name} = next.statement;
         sum.setValue(name, QualifiedType { org, module, path } );
       }
-      _ when next is ConstantDeclare => withScope(sum, next.access, { scope => scope.setValue(next.assign.name, lookup.fullyQualify(next.assign.type, next.pos)) })
+      _ when next is ConstantDeclare => withScope(sum, next.access, { scope => scope.setValue(next.assign.name, lookup.fullyQualify(next.assign.declaredType, next.pos)) })
       _ when next is ImplDeclare => {
         if (next.proto != null) {
           next.pos.fail("Protocols are not implemented yet")
@@ -578,7 +578,7 @@ private fun buildFileScope(core: Scope, basePath: List[String], file: AstFile): 
 
 private fun checkDeclarations(fileScope: Scope, file: AstFile): List[(QualifiedType, Declaration)] = {
   fun qualified(name: String): QualifiedType = {
-    return QualifiedType { org: 'this', module: 'this', path: basePath.add(name) };
+    return QualifiedType { org: 'this', module: 'this', path: file.path.add(name) };
   }
 
   file.declarations.map({ dec =>
@@ -602,7 +602,7 @@ private fun checkDeclarations(fileScope: Scope, file: AstFile): List[(QualifiedT
         val name = qualified(dec.type.name);
         // add 'This' type before qualifying
         val value = fileScope.setType("This", name)
-          .fullyQualify(dec.type.value);
+          .fullyQualify(dec.type.value, dec.pos);
         val type = dec.type{value};
         val result = dec{type};
 
@@ -610,7 +610,7 @@ private fun checkDeclarations(fileScope: Scope, file: AstFile): List[(QualifiedT
       }
       _ when dec is ConstantDeclare => {
         val name = qualified(dec.assign.name);
-        val declaredType = fileScope.fullyQualify(dec.assign.type);
+        val declaredType = fileScope.fullyQualify(dec.assign.declaredType, dec.pos);
 
 
 

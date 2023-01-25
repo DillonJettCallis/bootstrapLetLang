@@ -15,7 +15,6 @@ import this/Ast.NullLiteralExp
 import this/Ast.BooleanLiteralExp
 import this/Ast.NumberLiteralExp
 import this/Ast.StringLiteralExp
-import this/Ast.ListLiteralExp
 import this/Ast.CharLiteralExp
 import this/Ast.IdentifierExp
 import this/Ast.BinaryOpExp
@@ -51,6 +50,8 @@ import this/Ast.ImplDeclare
 import this/Ast.MatchPattern
 import this/Ast.AstModule
 import this/Ast.AstFile
+import this/Ast.MethodCallExp
+import this/Ast.FieldAccessExp
 
 import this/StringTemplate.parseStringTemplateWithPrefix
 
@@ -109,7 +110,7 @@ fun parseExpressionOnly(tokens: List[Token]): Expression = {
   result
 }
 
-private fun parseFile(cursor: TokenCursor, declarations: List[Declaration]): AstFile = {
+private fun parseFile(path: List[String], cursor: TokenCursor, declarations: List[Declaration]): AstFile = {
   if (cursor.isEmpty()) {
     return AstFile{ path, declarations }
   } else {
@@ -125,7 +126,7 @@ private fun parseFile(cursor: TokenCursor, declarations: List[Declaration]): Ast
           _ => parseDeclaration(cursor, Internal)
         }
 
-        return parseFile(finalCursor, declarations.add(dec))
+        return parseFile(path, finalCursor, declarations.add(dec))
       }
 
       _ => token.pos.fail('Expected declaration')
@@ -547,13 +548,13 @@ private fun parseDestructureDataPatterns(cursor: TokenCursor, init: List[(String
   val maybeColon = firstCursor.curr()
 
   val (baseCursor, baseName) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
-    val (baseCursor, baseToken) = firstCursor.next()
+    val (baseCursor, baseToken) = firstCursor.skip().next()
 
     if (baseToken isNot TokenWord) {
       baseToken.pos.fail("Expected identifier in data destructure assignment")
+    } else {
+      (baseCursor, baseToken.value)
     }
-
-    (baseCursor, baseToken.value)
   } else {
     (firstCursor, name)
   }
@@ -853,7 +854,7 @@ private fun parseAccessExp(cursor: TokenCursor): (TokenCursor, Expression) = {
 private fun parseCall(cursor: TokenCursor): (TokenCursor, Expression) = {
   val (callCursor, base) = parseConstruct(cursor)
 
-  val maybeOpen = callCursor.curr()
+  val maybeOpenBracket = callCursor.curr()
 
   val (genCursor, genArguments) = if (maybeOpenBracket is TokenSymbol && maybeOpenBracket.value == "[") {
     val (closeCursor, args) = parseTypeList(callCursor.skip())
@@ -870,7 +871,7 @@ private fun parseCall(cursor: TokenCursor): (TokenCursor, Expression) = {
       closeBracket.pos.fail("Expected end of type arguments")
     }
   } else {
-    (callCursor, emptyList())
+    (callCursor, List.of())
   }
 
   val maybeOpen = genCursor.curr()
