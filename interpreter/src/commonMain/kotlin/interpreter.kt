@@ -149,8 +149,20 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
       val right = interpret(ex.right, scope)
 
       when (ex.op) {
-        "is" -> ((left as JObject).jClass == (right as JClass)).wrap()
-        "isNot" -> ((left as JObject).jClass != (right as JClass)).wrap()
+        "is" -> {
+          if (right is JAtom) {
+            (left == right).wrap()
+          } else {
+            ((left as JObject).jClass == (right as JClass)).wrap()
+          }
+        }
+        "isNot" -> {
+          if (right is JAtom) {
+            (left != right).wrap()
+          } else {
+            ((left as JObject).jClass != (right as JClass)).wrap()
+          }
+        }
         "+" -> (left.unwrap<Int>() + right.unwrap<Int>()).wrap()
         "-" -> (left.unwrap<Int>() - right.unwrap<Int>()).wrap()
         "*" -> (left.unwrap<Int>() * right.unwrap<Int>()).wrap()

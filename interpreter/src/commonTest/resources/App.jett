@@ -1,7 +1,8 @@
 import this/Lexer.lex
 import this/Parser.parse
 import this/Checker.checkModule
-import this/Checker.Scope
+import this/Sweeper.Scope
+import this/Sweeper.sweepModule
 import this/Ast.AstModule
 import this/Ast.AstFile
 
@@ -22,17 +23,8 @@ fun main(args: List[String]): Scope = {
 
   val module = AstModule { files }
 
-  val checker = checkModule(module)
+  val swept = sweepModule(module)
+  val checked = checkModule(swept)
 
-  checker.forEach({pair =>
-    val (scope) = pair;
-
-    scope.parent.typeDefs.entries().forEach({ defPair =>
-      val (qualified, type) = defPair;
-
-      println("${qualified.path} => ${type}")
-    })
-  });
-
-  return checker;
+  return checked;
 }

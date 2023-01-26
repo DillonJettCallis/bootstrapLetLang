@@ -1,3 +1,5 @@
+import this/CoreLib.listType
+
 atom CharType
 atom StringType
 atom IntType
@@ -7,9 +9,6 @@ atom AnyType
 atom NullType
 atom UnitType
 atom NothingType
-atom ListType
-atom SetType
-atom MapType
 
 type PrimitiveType
     = CharType
@@ -86,7 +85,7 @@ type Type
     | UnionType
     | IntersectionType
 
-fun listOfType(item: Type): GenericType = GenericType{ base: ListType, paramTypes: List.of(item) }
+fun listOfType(item: Type): GenericType = GenericType{ base: listType, paramTypes: List.of(item) }
 
 val stringTemplateType: FunctionType = FunctionType {
   paramTypes: List.of(listOfType(StringType), listOfType(AnyType)),

@@ -19,9 +19,6 @@ import this/Type.AnyType
 import this/Type.NullType
 import this/Type.UnitType
 import this/Type.NothingType
-import this/Type.ListType
-import this/Type.SetType
-import this/Type.MapType
 import this/Type.VarArgsType
 import this/Type.Type
 import this/Type.VarArgsType
@@ -38,7 +35,7 @@ import this/Ast.Expression
 
 import this/Lexer.Position
 
-import this/Checker.Scope
+import this/Sweeper.Scope
 
 val listOfQualified: QualifiedType = QualifiedType { org: 'core', module: 'core', path: List.of('List', 'of') }
 
@@ -50,20 +47,37 @@ fun listOfCall(arguments: List[Expression], type: Type, pos: Position): CallExp 
 }
 
 val listType: DataType = DataType { name: "List", fields: Map.of( ("size", IntType) ), typeParams: List.of(PlaceholderType{name: "Item"}) }
+val setType: DataType = DataType { name: "Set", fields: Map.of( ("size", IntType) ), typeParams: List.of(PlaceholderType{name: "Item"}) }
+val mapType: DataType = DataType { name: "Map", fields: Map.of( ("size", IntType) ), typeParams: List.of(PlaceholderType{name: "Key"}, PlaceholderType{name: "Value"}) }
+
+fun coreType(name: String): QualifiedType = {
+  return QualifiedType { org: 'core', module: 'core', path: List.of(name) };
+}
 
 fun initCoreScope(): Scope = Scope {
   parent: null,
+  typeDefs: Map.of()
+    .set(coreType("List"), listType)
+    .set(coreType("Set"), setType)
+    .set(coreType("Map"), mapType)
+    .set(coreType("Char"), CharType)
+    .set(coreType("String"), StringType)
+    .set(coreType("Int"), IntType)
+    .set(coreType("Float"), FloatType)
+    .set(coreType("Boolean"), BooleanType)
+    .set(coreType("Unit"), UnitType)
+    .set(coreType("Nothing"), NothingType),
   types: Map.of()
-    .set("List", ListType)
-    .set("Set", SetType)
-    .set("Map", MapType)
-    .set("Char", CharType)
-    .set("String", StringType)
-    .set("Int", IntType)
-    .set("Float", FloatType)
-    .set("Boolean", BooleanType)
-    .set("Unit", UnitType)
-    .set("Nothing", NothingType),
+    .set("List", coreType("List"))
+    .set("Set", coreType("Set"))
+    .set("Map", coreType("Map"))
+    .set("Char", coreType("Char"))
+    .set("String", coreType("String"))
+    .set("Int", coreType("Int"))
+    .set("Float", coreType("Float"))
+    .set("Boolean", coreType("Boolean"))
+    .set("Unit", coreType("Unit"))
+    .set("Nothing", coreType("Nothing")),
   values: Map.of(),
   methods: Map.of(),
   protocols: Map.of(),

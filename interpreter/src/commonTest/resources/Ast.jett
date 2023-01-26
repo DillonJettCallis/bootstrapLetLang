@@ -7,6 +7,7 @@ import this/Type.CharType
 import this/Type.NothingType
 import this/Type.FunctionType
 import this/Type.QualifiedType
+import this/Type.PlaceholderType
 
 // Private is within the same file
 // Internal is within the same module
@@ -96,7 +97,7 @@ data DebuggerStatement = { pos: Position }
 
 
 data AtomDeclare = { name: String, access: AccessModifier, pos: Position }
-data DataDeclare = { name: String, body: Map[String, Type], access: AccessModifier, pos: Position }
+data DataDeclare = { name: String, generics: Map[String, PlaceholderType], body: Map[String, Type], access: AccessModifier, pos: Position }
 data TypeDeclare = { type: TypeStatement, access: AccessModifier, pos: Position }
 data FunctionDeclare = { func: FunctionStatement, access: AccessModifier, pos: Position }
 data ImportDeclare = { statement: ImportStatement, access: AccessModifier, pos: Position }
