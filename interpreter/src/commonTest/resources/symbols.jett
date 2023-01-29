@@ -1,0 +1,3 @@
+
+data QualifiedSymbol { org: String, module: String, path: List[String] }
+

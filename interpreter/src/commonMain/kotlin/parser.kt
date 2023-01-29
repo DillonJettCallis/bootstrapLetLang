@@ -184,16 +184,10 @@ private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
 
   val name = nameToken.value
 
-  val (equalsCursor, equals) = nameCursor.next()
-
-  if (equals !is TokenSymbol || equals.value != "=") {
-    equals.pos.fail("Expected data declaration assignment")
-  }
-
-  val (openCursor, open) = equalsCursor.next()
+  val (openCursor, open) = nameCursor.next()
 
   if (open !is TokenSymbol || open.value != "{") {
-    equals.pos.fail("Expected data declaration open bracket")
+    nameToken.pos.fail("Expected data declaration open bracket")
   }
 
   val (finalCursor, fields) = parseDataField(openCursor)

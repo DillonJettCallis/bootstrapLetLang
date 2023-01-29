@@ -1,4 +1,6 @@
 
+import this/position.Position
+
 private val escapes: Map[Char, Char] = Map.of()
   .set(char"\\", char"\\")
   .set(char't', char'\t')
@@ -6,12 +8,12 @@ private val escapes: Map[Char, Char] = Map.of()
   .set(char'n', char'\n')
   .set(char's', char' ')
   .set(char'\$', char'\$')
-  .set(char "'", char"'")
-  .set(char '"', char'"')
-  .set(char '`', char'`')
+  .set(char"'", char"'")
+  .set(char'"', char'"')
+  .set(char'`', char'`')
 
 
-data StringCursor = { raw: String, index: Int, pos: Position }
+data StringCursor { raw: String, index: Int, pos: Position }
 
 implement StringCursor {
 
@@ -45,18 +47,11 @@ implement StringCursor {
   }
 }
 
-data Position = { line: Int, col: Int, src: String }
-
-implement Position {
-  fun increment(this, next: Char): Position = if (next == char'\n') this{line: this.line + 1, col: 0} else this{col: this.col + 1}
-  fun fail(this, message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
-}
-
-data TokenWord = { value: String, pos: Position }
-data TokenSymbol = { value: String, pos: Position }
-data TokenString = { value: String, pos: Position }
-data TokenNumber = { value: String, pos: Position }
-data TokenEOF = { pos: Position }
+data TokenWord { value: String, pos: Position }
+data TokenSymbol { value: String, pos: Position }
+data TokenString { value: String, pos: Position }
+data TokenNumber { value: String, pos: Position }
+data TokenEOF { pos: Position }
 
 type Token = TokenWord | TokenSymbol | TokenString | TokenNumber | TokenEOF
 
@@ -181,16 +176,11 @@ private fun munchLineComment(src: StringCursor): StringCursor = {
 }
 
 private fun munchBlockComment(src: StringCursor): StringCursor = {
-  val finalCursor = doUntil(src, { cur => cur.skip() } , { it =>
-    if (it.curr() == char'*' && it.isNotEmpty()) {
-      val nextCursor = it.skip()
-      nextCursor.curr() == char'/'
-    } else {
-      false
-    }
+  val finalCursor = doUntil(src, { cur => cur.skip() }, { it =>
+    it.curr() == char'*' && it.isNotEmpty() && it.skip().curr() == char'/'
   })
 
-  finalCursor.skip()
+  finalCursor.skip().skip()
 }
 
 private fun doUntil[Item](init: Item, action: { Item -> Item }, test: { Item -> Boolean }): Item =

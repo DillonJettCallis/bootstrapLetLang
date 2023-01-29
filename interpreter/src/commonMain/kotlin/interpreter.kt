@@ -1,14 +1,11 @@
-import kotlin.math.max
-import kotlin.math.min
-
 private class Scope(val values: MutableMap<String, JValue>, val parent: Scope?) {
 
-  operator fun get(key: String): JValue {
+  operator fun get(key: String, pos: Position): JValue {
     return this.values.getOrElse(key) {
       if (parent != null)
-        parent[key]
+        parent[key, pos]
       else
-        throw Exception("No such value $key in scope")
+        pos.fail("No such value $key in scope")
     }
   }
 
@@ -31,8 +28,10 @@ fun executePackage(pack: AstModule, args: List<String>): Any? {
     core[path.joinToString(".")] = buildScope(mod, core).wrap()
   }
 
+  val dummyPos = Position(0, 0, "<root>")
+
   pack.files.forEach { (path, mod) ->
-    val thisScope = core[path.joinToString(".")].unwrap<Scope>()
+    val thisScope = core[path.joinToString("."), dummyPos].unwrap<Scope>()
 
     mod.declarations.filterIsInstance<ImportDeclare>().forEach {
       val (packageName, modulePath, path) = it.import
@@ -42,11 +41,11 @@ fun executePackage(pack: AstModule, args: List<String>): Any? {
       val init = path.dropLast(1).joinToString(".")
       val value = path.last()
 
-      thisScope[value] = core[init].unwrap<Scope>()[value]
+      thisScope[value] = core[init, it.pos].unwrap<Scope>()[value, it.pos]
     }
   }
 
-  val mainFun = core["App"].unwrap<Scope>()["main"] as JFunction
+  val mainFun = core["main", dummyPos].unwrap<Scope>()["main", dummyPos] as JFunction
 
   return executeMain(mainFun, args)
 }
@@ -65,7 +64,7 @@ private fun buildScope(file: AstFile, core: Scope): Scope {
       is FunctionDeclare -> moduleScope[it.func.name] = it.func.body.makeJFunction(moduleScope)
       is ImplDeclare -> {
         val dataName = (it.base as NamedType).name
-        val dataObj = moduleScope[dataName] as JClass
+        val dataObj = moduleScope[dataName, it.pos] as JClass
 
         val (statics, instances) = it.funcs.partition { fn -> fn.func.body.args.isEmpty() || fn.func.body.args.first() != "this" }
 
@@ -103,7 +102,7 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
     is CharLiteralExp -> ex.value.wrap()
     is ListLiteralExp -> ex.args.map { interpret(it, scope) }.wrap()
     is IdentifierExp -> {
-      val raw = scope[ex.name]
+      val raw = scope[ex.name, ex.pos]
 
       if (raw is JConst) {
         raw.value
@@ -616,6 +615,18 @@ private val jSet = JClass(
       val (rawSet, rawValue) = it
       val set = rawSet.unwrap<Set<JValue>>()
       (rawValue in set).wrap()
+    },
+    "concat" to JFunction {
+      val (rawLeft, rawRight) = it
+      val left = rawLeft.unwrap<Set<JValue>>()
+      val right = rawRight.unwrap<Set<JValue>>()
+
+      (left + right).wrap()
+    },
+    "add" to JFunction {
+      val (rawSet, value) = it
+      val set = rawSet.unwrap<Set<JValue>>()
+      (set + value).wrap()
     }
   )
 )
@@ -654,6 +665,12 @@ private val jMap = JClass(
     },
     "entries" to JFunction { args ->
       args[0].unwrap<Map<JValue, JValue>>().entries.map { it.toPair().toList().wrap() }.wrap()
+    },
+    "keys" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().keys.map { it.wrap() }.wrap()
+    },
+    "values" to JFunction { args ->
+      args[0].unwrap<Map<JValue, JValue>>().values.map { it.wrap() }.wrap()
     },
     "concat" to JFunction { args ->
       val (rawFirst, rawSecond) = args

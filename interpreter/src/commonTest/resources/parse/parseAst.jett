@@ -1,0 +1,93 @@
+import this/position.Position
+
+import this/access.AccessModifier
+
+import this/type.typeExpression.TypeExpression
+
+type ParseExpression
+    = ParseNullLiteralExp
+    | ParseBooleanLiteralExp
+    | ParseNumberLiteralExp
+    | ParseStringLiteralExp
+    | ParseCharLiteralExp
+    | ParseIdentifierExp
+    | ParseBinaryOpExp
+    | ParseUnaryOpExp
+    | ParseBlockExp
+    | ParseFieldAccessExp
+    | ParseCallExp
+    | ParseMethodCallExp
+    | ParseLambdaExp
+    | ParseIfExp
+    | ParseReturnExp
+    | ParseThrowExp
+    | ParseConstructExp
+    | ParseConstructTupleExp
+    | ParseMatchExp
+
+type ParseStatement
+    = ParseExpressionStatement
+    | ParseAssignmentStatement
+    | ParseFunctionStatement
+    | ParseTypeStatement
+    | ParseImportStatement
+    | ParseDeconstructDataStatement
+    | ParseDeconstructTupleStatement
+    | ParseDebuggerStatement
+
+type ParseDeclaration
+    = ParseAtomDeclare
+    | ParseDataDeclare
+    | ParseTypeDeclare
+    | ParseFunctionDeclare
+    | ParseImportDeclare
+    | ParseConstantDeclare
+    | ParseProtocolDeclare
+    | ParseImplDeclare
+
+data ParseNullLiteralExp { pos: Position }
+data ParseBooleanLiteralExp { value: Boolean, pos: Position }
+data ParseNumberLiteralExp { value: String, pos: Position }
+data ParseStringLiteralExp { value: String, pos: Position }
+data ParseCharLiteralExp { value: Char, pos: Position }
+data ParseIdentifierExp { name: String, pos: Position }
+data ParseBinaryOpExp { op: String, left: ParseExpression, right: ParseExpression, pos: Position }
+data ParseUnaryOpExp { op: String, ex: ParseExpression, pos: Position }
+data ParseBlockExp { body: List[ParseStatement], pos: Position }
+data ParseFieldAccessExp { base: ParseExpression, name: String, pos: Position }
+data ParseCallExp { func: ParseExpression, arguments: List[ParseExpression], typeArguments: List[TypeExpression], pos: Position }
+data ParseMethodCallExp { base: ParseExpression, name: String, arguments: List[TypeExpression], typeArguments: List[TypeExpression], pos: Position }
+data ParseLambdaExp { args: List[String], body: ParseExpression, pos: Position, argTypes: List[TypeExpression], resultType: TypeExpression }
+data ParseIfExp { condition: ParseExpression, thenExp: ParseExpression, elseExp: ParseExpression, pos: Position }
+data ParseReturnExp { ex: ParseExpression, pos: Position }
+data ParseThrowExp { ex: ParseExpression, pos: Position }
+data ParseConstructExp { base: ParseExpression, values: List[(String, ParseExpression)], pos: Position }
+data ParseConstructTupleExp { values: List[ParseExpression], pos: Position }
+data ParseMatchExp { base: ParseExpression, patterns: List[ParseMatchPattern], pos: Position }
+
+data ParseMatchPattern { base: ParseExpression, guard: ParseExpression, body: ParseExpression, pos: Position }
+
+data ParseExpressionStatement { ex: ParseExpression, pos: Position }
+data ParseAssignmentStatement { name: String, declaredType: TypeExpression, body: ParseExpression, pos: Position }
+data ParseFunctionStatement { name: String, generics: List[String], body: ParseLambdaExp, pos: Position }
+data ParseTypeStatement { name: String, value: TypeExpression, pos: Position }
+data ParseImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
+data ParseDeconstructDataStatement { base: ParseExpression, values: List[(String, String)], pos: Position }
+data ParseDeconstructTupleStatement { base: ParseExpression, names: List[String], pos: Position }
+data ParseDebuggerStatement { pos: Position }
+
+
+data ParseAtomDeclare { name: String, access: AccessModifier, pos: Position }
+data ParseDataDeclare { name: String, generics: List[String], body: Map[String, TypeExpression], access: AccessModifier, pos: Position }
+data ParseTypeDeclare { type: ParseTypeStatement, access: AccessModifier, pos: Position }
+data ParseFunctionDeclare { func: ParseFunctionStatement, access: AccessModifier, pos: Position }
+data ParseImportDeclare { statement: ParseImportStatement, access: AccessModifier, pos: Position }
+data ParseConstantDeclare { assign: ParseAssignmentStatement, access: AccessModifier, pos: Position }
+data ParseProtocolDeclare { name: String, generics: List[String], funcs: List[(String, ParseProtocolFunctionDeclare)], access: AccessModifier, pos: Position }
+data ParseImplDeclare { base: String, proto: String, funcs: List[ParseFunctionDeclare], access: AccessModifier, pos: Position }
+
+data ParseProtocolFunctionDeclare { generics: List[String], params: List[TypeExpression], result: TypeExpression }
+
+data ParseFile { path: List[String], declarations: List[ParseDeclaration] }
+
+data ParseModule { files: Map[List[String], ParseFile] }

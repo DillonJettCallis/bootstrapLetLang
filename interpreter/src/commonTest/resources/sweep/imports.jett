@@ -1,0 +1,41 @@
+import this/access.AccessModifier
+import this/access.Internal
+import this/access.Private
+import this/access.Protected
+import this/access.Public
+import this/parse.parseAst.ParseImportDeclare
+import this/parse.parseAst.ParseModule
+import this/symbols.QualifiedSymbol
+
+
+/*
+ * Given the output of this/sweep.declare.collectDeclarations, verify that every import in the module
+ * points to something that both exists and it has access to.
+ */
+fun checkImports(mod: ParseModule, declared: Map[QualifiedSymbol, AccessModifier]): Boolean = {
+
+  mod.files.values().forEach({ file =>
+    file.declarations.forEach({ dec =>
+      if (dec is ParseImportDeclare) {
+        val { org, module, path } = dec.statement
+
+        val symbol = QualifiedSymbol { org, module, path }
+
+        val access = declared.get(symbol);
+
+        if (access == null) {
+          dec.pos.fail("No such value found to import symbol $symbol")
+        }
+
+        if (access is Private) {
+          dec.pos.fail("Cannot import private symbol $symbol")
+        }
+      }
+    })
+  })
+
+
+  // always return true, we'll throw an exception if something is wrong
+  return true;
+}
+

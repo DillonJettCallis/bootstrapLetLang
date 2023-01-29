@@ -1,0 +1,51 @@
+import this/symbols.QualifiedSymbol
+
+/*
+ * A type expression represents the declarable types of a variable, argument or function return type
+ *
+ * example:
+ * ```
+ * // String is the declared type here
+ * val temp: String = ""
+ * ```
+ *
+ * This means that a type expression cannot declare new generic params, it can only use them.
+ * It also means that all params and results of a function type expression are required, unlike a lambda impl.
+ */
+
+data NamedTypeExp { name: String }
+data GenericTypeExp { base: TypeExpression, params: List[TypeExpression] }
+data FunctionTypeExp { params: List[TypeExpression], result: TypeExpression }
+data TupleTypeExp { params: List[TypeExpression] }
+data UnionTypeExp { params: Set[TypeExpression] }
+data IntersectionTypeExp { params: Set[TypeExpression] }
+
+type TypeExpression
+  = NamedTypeExp
+  | GenericTypeExp
+  | LambdaTypeExp
+  | TupleTypeExp
+  | UnionTypeExp
+  | IntersectionTypeExp
+
+
+
+
+// matching versions of the above, but with fully qualified names
+data QualifiedNamedTypeExp { name: QualifiedSymbol }
+data QualifiedGenericTypeExp { base: QualifiedTypeExpression, params: List[QualifiedTypeExpression] }
+data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression }
+data QualifiedTupleTypeExp { params: List[QualifiedTypeExpression] }
+data QualifiedUnionTypeExp { params: Set[QualifiedTypeExpression] }
+data QualifiedIntersectionTypeExp { params: Set[QualifiedTypeExpression] }
+
+type QualifiedTypeExpression
+  = QualifiedNamedTypeExp
+  | QualifiedGenericTypeExp
+  | QualifiedLambdaTypeExp
+  | QualifiedTupleTypeExp
+  | QualifiedUnionTypeExp
+  | QualifiedIntersectionTypeExp
+
+
+

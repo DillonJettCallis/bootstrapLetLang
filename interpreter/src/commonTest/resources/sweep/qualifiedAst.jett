@@ -1,0 +1,93 @@
+import this/position.Position
+
+import this/access.AccessModifier
+
+import this/type.typeExpression.QualifiedTypeExpression
+
+type QualifiedExpression
+    = QualifiedNullLiteralExp
+    | QualifiedBooleanLiteralExp
+    | QualifiedNumberLiteralExp
+    | QualifiedStringLiteralExp
+    | QualifiedCharLiteralExp
+    | QualifiedIdentifierExp
+    | QualifiedBinaryOpExp
+    | QualifiedUnaryOpExp
+    | QualifiedBlockExp
+    | QualifiedFieldAccessExp
+    | QualifiedCallExp
+    | QualifiedMethodCallExp
+    | QualifiedLambdaExp
+    | QualifiedIfExp
+    | QualifiedReturnExp
+    | QualifiedThrowExp
+    | QualifiedConstructExp
+    | QualifiedConstructTupleExp
+    | QualifiedMatchExp
+
+type QualifiedStatement
+    = QualifiedExpressionStatement
+    | QualifiedAssignmentStatement
+    | QualifiedFunctionStatement
+    | QualifiedTypeStatement
+    | QualifiedImportStatement
+    | QualifiedDeconstructDataStatement
+    | QualifiedDeconstructTupleStatement
+    | QualifiedDebuggerStatement
+
+type QualifiedDeclaration
+    = QualifiedAtomDeclare
+    | QualifiedDataDeclare
+    | QualifiedTypeDeclare
+    | QualifiedFunctionDeclare
+    | QualifiedImportDeclare
+    | QualifiedConstantDeclare
+    | QualifiedProtocolDeclare
+    | QualifiedImplDeclare
+
+data QualifiedNullLiteralExp { pos: Position }
+data QualifiedBooleanLiteralExp { value: Boolean, pos: Position }
+data QualifiedNumberLiteralExp { value: String, pos: Position }
+data QualifiedStringLiteralExp { value: String, pos: Position }
+data QualifiedCharLiteralExp { value: Char, pos: Position }
+data QualifiedIdentifierExp { name: String, pos: Position }
+data QualifiedBinaryOpExp { op: String, left: QualifiedExpression, right: QualifiedExpression, pos: Position }
+data QualifiedUnaryOpExp { op: String, ex: QualifiedExpression, pos: Position }
+data QualifiedBlockExp { body: List[QualifiedStatement], pos: Position }
+data QualifiedFieldAccessExp { base: QualifiedExpression, name: String, pos: Position }
+data QualifiedCallExp { func: QualifiedExpression, arguments: List[QualifiedExpression], typeArguments: List[QualifiedTypeExpression], pos: Position }
+data QualifiedMethodCallExp { base: QualifiedExpression, name: String, arguments: List[QualifiedTypeExpression], typeArguments: List[QualifiedTypeExpression], pos: Position }
+data QualifiedLambdaExp { args: List[String], body: QualifiedExpression, pos: Position, argTypes: List[QualifiedTypeExpression], resultType: QualifiedTypeExpression }
+data QualifiedIfExp { condition: QualifiedExpression, thenExp: QualifiedExpression, elseExp: QualifiedExpression, pos: Position }
+data QualifiedReturnExp { ex: QualifiedExpression, pos: Position }
+data QualifiedThrowExp { ex: QualifiedExpression, pos: Position }
+data QualifiedConstructExp { base: QualifiedExpression, values: List[(String, QualifiedExpression)], pos: Position }
+data QualifiedConstructTupleExp { values: List[QualifiedExpression], pos: Position }
+data QualifiedMatchExp { base: QualifiedExpression, patterns: List[QualifiedMatchPattern], pos: Position }
+
+data QualifiedMatchPattern { base: QualifiedExpression, guard: QualifiedExpression, body: QualifiedExpression, pos: Position }
+
+data QualifiedExpressionStatement { ex: QualifiedExpression, pos: Position }
+data QualifiedAssignmentStatement { name: String, declaredType: QualifiedTypeExpression, body: QualifiedExpression, pos: Position }
+data QualifiedFunctionStatement { name: String, generics: List[String], body: QualifiedLambdaExp, pos: Position }
+data QualifiedTypeStatement { name: String, value: QualifiedTypeExpression, pos: Position }
+data QualifiedImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
+data QualifiedDeconstructDataStatement { base: QualifiedExpression, values: List[(String, String)], pos: Position }
+data QualifiedDeconstructTupleStatement { base: QualifiedExpression, names: List[String], pos: Position }
+data QualifiedDebuggerStatement { pos: Position }
+
+
+data QualifiedAtomDeclare { name: String, access: AccessModifier, pos: Position }
+data QualifiedDataDeclare { name: String, generics: List[String], body: Map[String, QualifiedTypeExpression], access: AccessModifier, pos: Position }
+data QualifiedTypeDeclare { type: QualifiedTypeStatement, access: AccessModifier, pos: Position }
+data QualifiedFunctionDeclare { func: QualifiedFunctionStatement, access: AccessModifier, pos: Position }
+data QualifiedImportDeclare { statement: QualifiedImportStatement, access: AccessModifier, pos: Position }
+data QualifiedConstantDeclare { assign: QualifiedAssignmentStatement, access: AccessModifier, pos: Position }
+data QualifiedProtocolDeclare { name: String, generics: List[String], funcs: List[(String, QualifiedProtocolFunctionDeclare)], access: AccessModifier, pos: Position }
+data QualifiedImplDeclare { base: String, proto: String, funcs: List[QualifiedFunctionDeclare], access: AccessModifier, pos: Position }
+
+data QualifiedProtocolFunctionDeclare { generics: List[String], params: List[QualifiedTypeExpression], result: QualifiedTypeExpression }
+
+data QualifiedFile { path: List[String], declarations: List[QualifiedDeclaration] }
+
+data QualifiedModule { files: Map[List[String], QualifiedFile] }
