@@ -7,8 +7,9 @@ import this/sweep.declare.collectSymbols
 import this/symbols.QualifiedSymbol
 import this/sweep.imports.checkImports
 import this/sweep.qualify.qualify
+import this/sweep.dictionary.Dictionary
 
-fun main(args: List[String]): Map[QualifiedSymbol, AccessModifier] = {
+fun main(args: List[String]): Dictionary = {
   val srcDir = File.from(args.get(0));
   val files = srcDir.walkFiles();
   val srcFiles = files.filter({ file => file.extension() == 'jett' });
@@ -33,7 +34,9 @@ fun main(args: List[String]): Map[QualifiedSymbol, AccessModifier] = {
   checkImports(module, declarations);
 
   // fully qualify all type expressions in the codebase
-  val qualified = qualify(module)
+  val qualified = qualify(module);
 
-  return qualified;
+  val dictionary = Dictionary.new().collectDictionary(qualified);
+
+  return dictionary;
 }

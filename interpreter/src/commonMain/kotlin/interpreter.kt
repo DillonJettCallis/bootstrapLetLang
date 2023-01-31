@@ -287,13 +287,17 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
           }
           is TypeStatement, is ImportStatement -> JNull
           is DeconstructDataStatement -> {
-            val values = interpret(state.base, local) as JObject
+            val base = interpret(state.base, local)
+
+            if (base !is JObject) {
+              state.base.pos.fail("Cannot deconstruct non-data value")
+            }
 
             state.values.forEach { (inside, outside) ->
-              val value = values.fields[outside]
+              val value = base.fields[outside]
 
               if (value == null) {
-                throw NoSuchElementException("Could not find field named $outside in object")
+                state.pos.fail("Could not find field named $outside in object")
               }
 
               local[inside] = value.wrap()
@@ -607,7 +611,7 @@ private val jSet = JClass(
   name = "Set",
   staticMethods = mapOf(
     "of" to JFunction {
-      it.toSet().wrap()
+      it.drop(1).toSet().wrap()
     }
   ),
   instanceMethods = mapOf(
@@ -627,7 +631,18 @@ private val jSet = JClass(
       val (rawSet, value) = it
       val set = rawSet.unwrap<Set<JValue>>()
       (set + value).wrap()
-    }
+    },
+    "map" to JFunction {
+      val (rawSet, rawFunc) = it
+      val set = rawSet.unwrap<Set<JValue>>()
+      val func = rawFunc as JFunction
+
+      val result = set.mapTo(HashSet()) { item ->
+        func(listOf(item))
+      }
+
+      result.wrap()
+    },
   )
 )
 

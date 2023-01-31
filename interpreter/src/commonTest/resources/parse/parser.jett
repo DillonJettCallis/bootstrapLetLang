@@ -329,7 +329,7 @@ private fun parseImplDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
   return (finalCursor, ParseImplDeclare{base, proto: forType, funcs, access, pos} )
 }
 
-private fun parseImplBody(cursor: TokenCursor, base: Type, init: List[ParseFunctionDeclare]): (TokenCursor, List[ParseFunctionDeclare]) = {
+private fun parseImplBody(cursor: TokenCursor, base: String, init: List[ParseFunctionDeclare]): (TokenCursor, List[ParseFunctionDeclare]) = {
   val (nextCursor, maybeAccess) = cursor.next()
 
   if (maybeAccess isNot TokenWord) {
@@ -1254,7 +1254,7 @@ private fun parseTypeFunctionResult(cursor: TokenCursor, parameters: List[TypeEx
   val (finalCursor, closeBracket) = nextCursor.next()
 
   if (closeBracket is TokenSymbol && closeBracket.value == "}") {
-    return (finalCursor, FunctionTypeExp{params: parameters, resultType})
+    return (finalCursor, FunctionTypeExp{params: parameters, generics: List.of(), resultType})
   } else {
     closeBracket.pos.fail("Expected close of function type")
   }

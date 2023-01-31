@@ -1,0 +1,15 @@
+import this/symbols.QualifiedSymbol
+
+import this/type.typeExpression.QualifiedTypeExpression
+
+
+type ConcreteType
+  = AtomType
+  | DataType
+  | ProtocolType
+  | AliasType
+
+data AtomType { name: QualifiedSymbol }
+data DataType { name: QualifiedSymbol, generics: List[String], fields: Map[String, QualifiedTypeExpression] }
+data ProtocolType { name: QualifiedSymbol, generics: List[String], funcs: Map[String, QualifiedTypeExpression] }
+data AliasType { name: QualifiedSymbol, value: QualifiedTypeExpression }
