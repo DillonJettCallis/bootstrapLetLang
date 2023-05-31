@@ -22,6 +22,7 @@ import this/Type.NothingType
 import this/Type.ListType
 import this/Type.SetType
 import this/Type.MapType
+import this/Type.FileType
 import this/Type.VarArgsType
 import this/Type.Type
 import this/Type.VarArgsType
@@ -40,6 +41,7 @@ fun initCoreScope(): Scope = Scope {
     .set("List", ListType)
     .set("Set", SetType)
     .set("Map", MapType)
+    .set("File", FileType)
     .set("Char", CharType)
     .set("String", StringType)
     .set("Int", IntType)

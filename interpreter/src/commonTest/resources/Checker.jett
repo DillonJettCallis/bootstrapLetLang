@@ -57,7 +57,7 @@ import this/Type.TupleType
 import this/Type.GenericType
 import this/Type.UnknownType
 import this/Type.NamedType
-import this/Type.QualifiedType
+import this/Type.QualifiedName
 import this/Type.PlaceholderType
 import this/Type.UnionType
 import this/Type.IntersectionType
@@ -77,495 +77,329 @@ import this/Type.Type
 
 import this/CoreLib.initCoreScope
 
-private data DependencyScope = {
-  values: Map[String, Type]
-}
-
-private data ModuleScope = {
-  deps: Map[(String, String), DependencyScope],
-  files: Map[String, (AstFile, Scope)]
-}
-
-data FunctionSignature = {
-  isStatic: Boolean,  // is this a static function?
-  name: String        // the name of this method
-}
-
-data MethodMap = {
-  // map the method signature to the full location of the method.
-  // This DOES include protocol implementations for this type
-  // Protocol impls are merged into here AND go into their own protocol map
-  methods: Map[FunctionSignature, QualifiedType]
-}
-
-data ProtocolImplPair = {
-  // A pair of the protocol and the implementation type. Used as a key in maps
-  proto: QualifiedType,
-  base: QualifiedType
-}
-
-atom FieldAccess    // this is getting a field off a datatype
-atom StaticAccess   // this is calling a static method on either a datatype or a protocol
-atom MethodAccess   // this is calling staticly known instance method, could be on an impl but also from a proto with a known impl.
-atom ProtocolAccess // calling a protocol implementation, so it is dynamic based on the runtime type of the receiver
-atom DynamicAccess  // this is with ether a union or intersection type, the impl is based on the runtime type of the receiver
-
-type AccessType = FieldAccess | MethodAccess | ProtocolAccess
-
-atom PerfectFit                               // this type fits into the target type with no special handling
-data ProtocolFit = { impl: ProtocolImplPair } // this type needs a protocol impl to fit into this target type
-
-type FitType = PerfectFit | ProtocolFit
-
-data Scope = {
-  parent: Scope,
-  // maps a fully qualified type to it's actual type which itself can NOT be a QualifiedType but a type that holds QualifiedTypes.
-  typeDefs: Map[QualifiedType, Type],
-  types: Map[String, QualifiedType],
-  values: Map[String, QualifiedType],
-  methods: Map[QualifiedType, MethodMap],
-  protocolImpls: Map[ProtocolImplPair, MethodMap]
-}
-
-implement Scope {
-
-  fun new(): Scope = Scope {
-    parent: null,
-    typeDefs: Map.of(),
-    types: Map.of(),
-    values: Map.of(),
-    methods: Map.of(),
-    protocolImpls: Map.of()
-  }
-
-  fun child(this): Scope = {
-    val base = Scope.new();
-    base { parent: this }
-  }
-
-  fun setTypeDef(this, name: QualifiedType, value: Type): Scope = this{ typeDefs: this.typeDefs.set(name, value) }
-  fun getTypeDef(this, name: QualifiedType): Type = {
-    val mine = this.typeDefs.get(name);
-
-    if (mine == null) {
-      if (this.parent == null) {
-        return null
-      } else {
-        return this.parent.getTypeDef(name)
-      }
-    } else {
-      return mine
-    }
-  }
-
-  fun setType(this, name: String, value: Type): Scope = this{ types: this.types.set(name, value) }
-  fun getType(this, name: String): Type = {
-    val mine = this.types.get(name);
-
-    if (mine == null) {
-      if (this.parent == null) {
-        return null
-      } else {
-        return this.parent.getType(name)
-      }
-    } else {
-      return mine
-    }
-  }
-
-  fun setValue(this, name: String, value: QualifiedType): Scope = this{ values: this.values.set(name, value) }
-  fun getValue(this, name: String): QualifiedType = {
-    val mine = this.values.get(name);
-
-    if (mine == null) {
-      if (this.parent == null) {
-        return null
-      } else {
-        return this.parent.getValue(name)
-      }
-    } else {
-      return mine
-    }
-  }
-
-  fun fullyQualify(this, init: Type, pos: Position): QualifiedType = {
-    match (init) {
-      _ when init is QualifiedType => init
-      _ when init is NamedType => {
-        val result = this.getType(init.name);
-
-        if (result == null) {
-          pos.fail("No such type with name ${init.name} in scope");
-        } else {
-          return result;
-        }
-      }
-      _ when init is AtomType => init
-      _ when init is DataType => {
-        // inside the fields of a data type you can use "This" to refer to yourself.
-        val dataScope = this.setType(init.name, init)
-          .setType("This", init);
-
-        val withPlaceholders = init
-          .typeParams
-          .fold(dataScope, {scope, placeholder => scope.setType(placeholder.name, placeholder)});
-
-        val fields = init.fields.entries().map({pair =>
-          val (name, field) = pair;
-          (name, withPlaceholders.fullyQualify(field, pos))
-        });
-
-        init{fields}
-      }
-      _ when init is ProtocolType => {
-        val dataScope = this.setType(init.name, init)
-                  .setType("This", init);
-        val withPlaceholders = init
-          .typeParams
-          .fold(dataScope, {scope, placeholder => scope.setType(placeholder.name, placeholder)});
-
-        val functions = init.functions.entries().map({pair =>
-          val (name, field) = pair;
-          (name, withPlaceholders.fullyQualify(field, pos))
-        });
-
-        init{functions}
-      }
-      _ when init is FunctionType => {
-        val withPlaceholders = init
-          .typeParams
-          .fold(this, {scope, placeholder => scope.setType(placeholder.name, placeholder)});
-
-        val resultType = withPlaceholders.fullyQualify(init.resultType, pos);
-        val paramTypes = init.paramTypes.map({ type => withPlaceholders.fullyQualify(type, pos) });
-
-        init{resultType, paramTypes}
-      }
-      _ when init is VarArgsType => VarArgsType{base: this.fullyQualify(init.base, pos)}
-      _ when init is GenericType => GenericType{ base: this.fullyQualify(init.base), paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is TupleType => TupleType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is UnionType => UnionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is IntersectionType => IntersectionType{ paramTypes: init.paramTypes.map({type => this.fullyQualify(type)}) }
-      _ when init is PrimitiveType => init
-      _ => pos.fail("Unknown type")
-    }
-  }
-
-  fun setMethod(this, base: QualifiedType, sig: FunctionSignature, impl: QualifiedType): Scope = {
-    val existingMap = this.methods.get(base)
-
-    val methods = {
-      if (existingMap == null) {
-        Map.of()
-      } else {
-        existingMap.methods
-      }
-    }.set(sig, impl);
-
-    val methods = this.methods.set(base, MethodMap{ methods });
-
-    return this{methods};
-  }
-
-  private fun findMethods(this, base: QualifiedType): MethodMap = {
-    val map = this.methods.get(base);
-
-    if (map == null) {
-      if (this.parent == null) {
-        return null;
-      } else {
-        return this.parent.findMethods(base);
-      }
-    } else {
-      return map;
-    }
-  }
-
-  fun setProtoImpl(this, key: ProtocolImplPair, impl: MethodMap): Scope = this{ protocolImpls: this.protocolImpls.set(key, impl)}
-  private fun findProtoImpl(this, key: ProtocolImplPair): MethodMap = {
-    val maybe = this.protocolImpls.get(key);
-
-    if (maybe == null) {
-      if (parent == null) {
-        return null;
-      } else {
-        return parent.findProtoImpl(key);
-      }
-    } else {
-      return maybe;
-    }
-  }
-
-  fun access(this, rawBase: QualifiedType, name: String, pos: Position): (AccessType, QualifiedType) = {
-    debugger;
-
-    val base = this.getTypeDef(rawBase);
-
-    if (base == null) {
-      pos.fail("Unknown type ${rawBase}");
-    }
-
-    match (base) {
-      _ when base is AtomType => {
-        // no fields or instance methods on an atom so let's check for static methods
-        val sig = FunctionSignature{ isStatic: true, name };
-
-        val methodMap = this.findMethods(rawBase);
-
-        if (methodMap != null) {
-          val method = methodMap.methods.get(sig);
-
-          if (method != null) {
-            return (StaticAccess, method);
-          }
-        } else {
-          pos.fail("No such method ${name} found on atom ${base.name}");
-        }
-      }
-      _ when base is DataType => {
-        // check fields first
-
-        val field = base.fields.get(name);
-
-        if (field != null) {
-          if (field isNot QualifiedType) {
-            pos.fail("Something is wrong. DataType fields should be all qualified types at this point")
-          }
-
-          return (FieldAccess, field);
-        }
-
-        // not a field, check instance methods
-        val sig = FunctionSignature{ isStatic: false, name };
-
-         val methodMap = this.findMethods(rawBase);
-
-         if (methodMap != null) {
-          val method = methodMap.methods.get(sig);
-
-          if (method != null) {
-            return (MethodAccess, method);
-          }
-         } else {
-           pos.fail("No such method ${name} found on data type ${base.name}");
-         }
-      }
-      _ when base is ProtocolType => {
-        // check protocol methods
-        val sig = FunctionSignature{ isStatic: false, name };
-
-         val methodMap = this.findMethods(rawBase);
-
-         if (methodMap != null) {
-          val method = methodMap.methods.get(sig);
-
-          if (method != null) {
-            return (ProtocolAccess, method);
-          }
-         } else {
-           pos.fail("No such method ${name} found on protocol type ${base.name}");
-         }
-      }
-      _ when base is FunctionType => pos.fail("Functions don't have fields")
-      _ when base is VarArgsType => pos.fail("Var args type is illegal in this context")
-      _ when base is TupleType => pos.fail("Tuples do not have methods at this time")
-      _ when base is GenericType => {
-        if (base.base is QualifiedType) {
-          // delegate straight down. Should be no harm.
-          return this.access(base.base, name, pos);
-        }
-      }
-      _ when base is MetaType => {
-        val metaQualified = base.base;
-
-        if (metaQualified isNot QualifiedType) {
-          pos.fail("Something is wrong, meta types should always contain qualified types in this context");
-        }
-
-        val meta = this.getTypeDef(base.base);
-
-        if (meta is DataType || meta is ProtocolType) {
-         // this is how we look up static methods on data and protocol types.
-         val sig = FunctionSignature{ isStatic: true, name };
-
-         val methodMap = this.findMethods(metaQualified);
-
-         if (methodMap != null) {
-          val method = methodMap.methods.get(sig);
-
-          if (method != null) {
-            return (StaticAccess, method);
-          }
-         } else {
-           pos.fail("No such method ${name} found on protocol type ${base.name}");
-         }
-        } else {
-          pos.fail("Something is wrong, MetaType should only contain a DataType or a ProtocolType")
-        }
-      }
-      _ => pos.fail("Cannot access on type ${rawBase}")
-    }
-  }
-
-  fun fit(this, baseType: QualifiedType, targetType: QualifiedType, pos: Position): FitType = {
-    val base = this.getType(baseType, pos);
-    val target = this.getType(targetType, pos);
-
-    if (base == null || target == null) {
-      pos.fail("Unknown type");
-    }
-
-    if (baseType == targetType) {
-      return PerfectFit;
-    }
-
-    val key = ProtocolImplPair{base: baseType, proto: targetType};
-
-    val maybeProto = this.findProtoImpl(key);
-
-    if (maybeProto) {
-      return ProtocolFit{ impl: key };
-    }
-
-    if (target is UnionType) {
-      val fits = target.paramTypes.filter({ param => param == baseType});
-
-      if (fits.isEmpty()) {
-        pos.fail("Base type $baseType does not fit into target type $targetType");
-      } else {
-        return PerfectFit;
-      }
-    }
-
-    if (target is IntersectionType) {
-      pos.fail("I haven't implemented intersection types yet")
-    }
-
-    // does not fit
-    pos.fail("Base type $baseType does not fit into target type $targetType");
-  }
-}
-
-fun checkModule(module: AstModule): List[(Scope, AstFile)] = {
+fun checkModule(module: AstModule): (Set[QualifiedName], List[Map[String, QualifiedName]]) = {
   val core = initCoreScope();
 
-  val allFilesWithScopes = module.files.entries().map({ entry =>
+  val allNonPrivateDeclaredTypes: Set[QualifiedName] = module.files.entries().flatMap({ entry =>
     val (path, astFile) = entry;
 
-    val fileScope = buildFileScope(core, path, astFile);
+    collectedExportedTypes(path, astFile)
+  }).toSet();
 
-    return (fileScope, astFile);
+  val allFilesWithScopes: List[Map[String, QualifiedName]] = module.files.entries().map({ entry =>
+    val (path, astFile) = entry;
+
+    // make sure all imported types are valid
+    verifyImports(allNonPrivateDeclaredTypes, astFile);
+
+    val localTypes = collectAllLocalTypes(path, astFile);
+
+    return (localTypes, astFile);
   });
 
-  return allFilesWithScopes;
+  return (allNonPrivateDeclaredTypes, allFilesWithScopes);
 }
 
-private fun buildFileScope(core: Scope, basePath: List[String], file: AstFile): Scope = {
-  fun qualified(name: String): QualifiedType = {
-    return QualifiedType { org: 'this', module: 'this', path: basePath.add(name) };
+private data TypeDictionary = {
+  globals: Set[QualifiedName],
+
+}
+
+private data TypeToken = {
+  type: Type,
+  scope: TypeScope
+}
+
+implement TypeToken {
+  fun access(this, base: TypeToken, name: String, pos: Position): TypeToken = {
+    match (base) {
+      _ when base is AtomType => pos.fail("${base.name} is an Atom and has no fields nor methods")
+      _ when base is DataType => {
+        // check for fields first, then methods
+        val maybeField = base.fields.get(name);
+
+        if (maybeField != null) {
+          return TypeToken{ type: maybeField, scope: this };
+        }
+
+        // now check for methods
+        val maybeMethodToken = this.scope.lookupMethod(base.qualified, name);
+
+        if (maybeMethodToken != null) {
+          return maybeMethodToken;
+        }
+
+        pos.fail("No field or method with name ${name} on type ${base.qualified.pretty()}");
+      }
+      _ when base is ProtocolType => pos.fail("Protocols are not supported yet")
+      _ when base is FunctionType => pos.fail("Functions don't have properties")
+      _ when base is TupleType => pos.fail("Properties on tuples are not yet supported. Destructure to access a tuple's fields")
+      _ when base is GenericType => pos.fail("GenericType should not be accessible here")
+      _ when base is UnionType => {
+
+
+      }
+    }
+  }
+}
+
+private data TypeScope = {
+  parent: TypeScope,
+  values: Map[String, TypeToken],
+  methods: Map[QualifiedName, Map[String, TypeToken]],
+}
+
+implement TypeScope {
+  fun new(): TypeScope = TypeScope{
+    parent: null,
+    values: Map.of(),
+    methods: Map.of()
   }
 
-  fun withScope(child: Scope, access: AccessModifier, action: { Scope -> Scope }): Scope = {
-    if (access == Private) {
-      return action(child);
+  fun child(this): TypeScope = {
+    val base = new();
+    return base{ parent: this };
+  }
+
+  fun lookupValue(this, name: String, pos: Position): TypeToken = {
+    val maybeLocal = this.values.get(name);
+
+    if (maybeLocal != null) {
+      return maybeLocal;
     } else {
-      val parent = action(child.parent);
-
-      return child{parent};
+      if (this.parent != null) {
+        return this.parent.lookupValue(name, pos);
+      } else {
+        pos.fail("Could not find value $name")
+      }
     }
   }
 
-  fun qualifiedType(scope: Scope, access: AccessModifier, name: String): Scope = {
-    return withScope(scope, access, { level => level.setType(name, qualified(name)) });
+  fun addValue(this, name: String, type: Type): TypeScope = {
+    return this{
+      values: this.values.set(name, TypeToken{type, scope: this})
+    }
   }
 
-  // contains all the TYPES that are in scope, not the VALUES
-  val lookup = file.declarations.fold(core.child().child(), { sum, next =>
-    match (next) {
-      _ when next is AtomDeclare => qualifiedType(sum, next.access, next.name)
-      _ when next is DataDeclare => qualifiedType(sum, next.access, next.name)
-      _ when next is TypeDeclare => qualifiedType(sum, next.access, next.type.name)
-      _ when next is ImportDeclare => {
-        val {org, module, path, name} = next.statement;
-        sum.setType(name, QualifiedType { org, module, path } );
-      }
-      _ when next is ProtocolDeclare => next.pos.fail("Protocols are not implemented yet")
-      _ => sum
+  fun lookupMethod(this, qualified: QualifiedName, methodName: String): TypeToken = {
+    val maybeMethods = this.methods.get(qualified);
+
+    if (maybeMethods == null) {
+      return null;
     }
-  });
 
-  // set up all the qualified TYPES DEFS and VALUES now
-  file.declarations.fold(lookup, { sum, next =>
-    match (next) {
-      _ when next is AtomDeclare => {
-        // set value, the same as the type
-        val withValue = withScope(sum, next.access, { scope => scope.setValue(next.name, qualified(next.name)) });
-        // set the type def
-        withScope(withValue, next.access, {scope => scope.setTypeDef(qualified(next.name), AtomType{name: next.name})})
-      }
-      _ when next is DataDeclare => {
-        val key = qualified(next.name);
-        val dataType = DataType { name: next.name, fields: next.body, typeParams: List.of() };
+    return maybeMethods.get(methodName);
+  }
+}
 
-        // set the value, the MetaType
-        val withValue = withScope(sum, next.access, { scope => scope.setValue(next.name, MetaType{base: key}) });
-        // set the type def
-        withScope(withValue, next.access, { scope => scope.setTypeDef(key, lookup.fullyQualify(dataType, next.pos)) })
-      }
-      _ when next is FunctionDeclare => {
-        withScope(sum, next.access, { scope => scope.setValue(next.func.name, lookup.fullyQualify( next.func.body.type, next.pos )) })
-      }
-      _ when next is ImportDeclare => {
-        val {org, module, path, name} = next.statement;
-        sum.setValue(name, QualifiedType { org, module, path } );
-      }
-      _ when next is ConstantDeclare => withScope(sum, next.access, { scope => scope.setValue(next.assign.name, lookup.fullyQualify(next.type, next.pos)) })
-      _ when next is ImplDeclare => {
-        if (next.proto != null) {
-          next.pos.fail("Protocols are not implemented yet")
-        } else {
-          if (next.base isNot NamedType) {
-            next.pos.fail("Only NamedTypes are supported right now")
+
+
+// just collect all types from this file that the file itself can use to replace all NamedTypes with QualifiedNames
+private fun collectAllLocalTypes(basePath: List[String], astFile: AstFile): Map[String, QualifiedName] = {
+  fun qualified(name: String): QualifiedName = {
+    return QualifiedName { org: 'this', module: 'this', path: basePath.add(name) };
+  }
+
+  return astFile.declarations.fold(Map.of(), { dict, dec =>
+      match (dec) {
+        _ when dec is ImportDeclare => {
+          val {org, module, path, name} = dec.statement;
+
+          val initChar = name.getCharAt(0);
+
+          // if name starts with a capital letter, then it's a type. Otherwise it's not and we don't care for it right now
+          if (initChar.toUpperCase() == initChar) {
+            dict.set(name, QualifiedName{ org, module, path })
+          } else {
+            dict
           }
+        }
+        _ when dec is AtomDeclare => dict.set(dec.name, qualified(dec.name))
+        _ when dec is DataDeclare => dict.set(dec.name, qualified(dec.name))
+        _ when dec is TypeDeclare => dict.set(dec.type.name, qualified(dec.type.name))
+        _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not yet supported")
+        _ => dict
+      }
+    });
+}
 
-          val baseName = next.base.name;
-          val qualifiedBase = lookup.getType(baseName)
+// collect only the exported types of a file. No private types and no imports
+private fun collectedExportedTypes(basePath: List[String], astFile: AstFile): Set[QualifiedName] = {
+  fun qualified(name: String): QualifiedName = {
+    return QualifiedName { org: 'this', module: 'this', path: basePath.add(name) };
+  }
 
-          if (qualifiedBase isNot QualifiedType) {
-            next.pos.fail("Only QualifiedType is expected here")
-          }
+  return astFile.declarations.fold(Set.of(), { dict, dec =>
+      if (dec.access == Private) {
+        return dict;
+      }
 
-          val dataScope = lookup.child().setType("This", qualifiedBase)
-          val baseFuncPath = basePath.add(baseName);
+      match (dec) {
+        _ when dec is AtomDeclare => dict.add(qualified(dec.name))
+        _ when dec is DataDeclare => dict.add(qualified(dec.name))
+        _ when dec is TypeDeclare => dict.add(qualified(dec.type.name))
+        _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not yet supported")
+        _ => dict
+      }
+    });
+}
 
-          next.funcs
-            .fold(sum, { innerSum, funDec =>
-              val name = funDec.func.name;
+// make sure that all explicit imports in the file refer to real things that are exported somewhere else
+private fun verifyImports(allTypes: Set[QualifiedName], astFile: AstFile): Unit = {
+  astFile.declarations.forEach({dec =>
+    if (dec is ImportDeclare) {
+      val {org, module, path, name} = dec.statement;
 
-              val location = QualifiedType { org: 'this', module: 'this', path: baseFuncPath.add(name) };
+      val initChar = name.getCharAt(0);
 
-              val isStatic = funDec.func.body.args.size == 0 || funDec.func.body.args.head() != "this";
-              val type = dataScope.fullyQualify(funDec.func.body.type, funDec.pos);
+      // if name starts with a capital letter, then it's a type. Otherwise it's not and we don't care for it right now
+      if (initChar.toUpperCase() == initChar) {
+        val qualified = QualifiedName{ org, module, path };
 
-              val withMethod = withScope(innerSum, next.access, { scope => scope.setMethod(qualifiedBase, FunctionSignature{ isStatic, name}, location) })
-              withScope(withMethod, next.access, {scope => scope.setTypeDef(location, type)})
-          });
+        if (!allTypes.contains(qualified)) {
+          dec.pos.fail("No such type found to import");
         }
       }
-      _ => sum
-    }
-   })
-}
-
-private fun checkDeclarations(fileScope: Scope, file: AstFile): AstFile = {
-  file.declarations.map({ dec =>
-    match (dec) {
-      _ when dec is AtomDeclare => dec
-      _ when dec is DataDeclare => {
-
-      }
-      _ => dec
     }
   })
+}
+
+private fun qualifyAllTypes(types: Map[String, QualifiedName], astFile: AstFile): AstFile = {
+  val declarations = ast.declarations.map({ dec =>
+    match (dec) {
+      _ when dec is DataDeclare => {
+        val body = body.entries().fold(Map.of(), { res, next =>
+          val (key, bareType) = next;
+
+          val filledType = qualifyAllTypesType(types, bareType, dec.pos);
+
+          res.set(key, filledType);
+        });
+
+        dec{body}
+      }
+      _ when dec is TypeDeclare => {
+        dec{ type: dec.type{ value: qualifyAllTypesType(types, dec.type.value, dec.pos) } }
+      }
+      _ when dec is FunctionDeclare => {
+        qualifyAllTypesFunctionDeclare(types, dec)
+      }
+      _ when dec is ConstantDeclare => {
+        dec{type: qualifyAllTypesType(types, dec.type, dec.pos)}
+      }
+      _ when dec is ProtocolDeclare => dec.pos.fail("Protocols are not yet supported")
+      _ when dec is ImplDeclare => {
+        dec{funcs: dec.funcs.map({ func => qualifyAllTypesFunctionDeclare(types, func) })}
+      }
+      // atom and import have nothing to do
+      _ => dec
+    }
+  });
+
+  return AstFile{ declarations };
+}
+
+private fun qualifyAllTypesStatement(types: Map[String, QualifiedName], state: Statement): Statement {
+  match(state) {
+    _ when state is ExpressionStatement => state{ex: qualifyAllTypesExpression(types, state.ex)}
+    _ when state is AssignmentStatement => {
+      state {
+        declaredType: qualifyAllTypesType(types, state.declaredType, dec.pos),
+        body: qualifyAllTypesExpression(types, state.body)
+      }
+    }
+    _ when state is FunctionStatement => qualifyAllTypesFunctionStatement(types, state)
+    _ when state is TypeStatement => state{value: qualifyAllTypesType(types, state.value, dec.pos)}
+    _ when state is DeconstructDataStatement => {
+      state{base: qualifyAllTypesExpression(types, state.base}
+    }
+    _ when state is DeconstructTupleStatement => {
+      state{base: qualifyAllTypesExpression(types, state.base}
+    }
+    _ => state
+  }
+}
+
+private fun qualifyAllTypesFunctionDeclare(types: Map[String, QualifiedName], dec: FunctionDeclare): FunctionDeclare {
+  return dec{func: qualifyAllTypesFunctionStatement(types, dec.func)}
+}
+
+private fun qualifyAllTypesFunctionStatement(types: Map[String, QualifiedName], state: FunctionStatement): FunctionStatement {
+  return state{body: qualifyAllTypesLambdaExp(types, state.body)}
+}
+
+private fun qualifyAllTypesLambdaExp(types: Map[String, QualifiedName], ex: LambdaExp): LambdaExp {
+  return ex {
+    type: qualifyAllTypesFunctionType(types, ex.type, ex.pos),
+    body: qualifyAllTypesExpression(types, ex.body),
+  }
+}
+
+private fun qualifyAllTypesExpression(types: Map[String, QualifiedName], ex: Expression): Expression {
+  match (ex) {
+    _ when ex is ListLiteralExp => ex{args: ex.args.map({e => qualifyAllTypesExpression(types, e)})}
+    _ when ex is BinaryOpExp => ex{
+      left: qualifyAllTypesExpression(types, ex.left),
+      right: qualifyAllTypesExpression(types, ex.right)
+    }
+    _ when ex is UnaryOpExp => ex{ex: qualifyAllTypesExpression(types, ex.ex)}
+    _ when ex is BlockExp => ex{body: ex.body.map({state => qualifyAllTypesStatement(types, state)})}
+    _ when ex is CallExp => ex {
+      func: qualifyAllTypesExpression(types, ex.func),
+      arguments: ex.arguments.map({arg => qualifyAllTypesExpression(types, arg)})
+    }
+    _ when ex is LambdaExp => qualifyAllTypesLambdaExp(types, ex)
+    _ when ex is IfExp => ex {
+      condition: qualifyAllTypesExpression(types, ex.condition)
+      thenExp: qualifyAllTypesExpression(types, ex.thenExp)
+      elseExp: if (ex.elseExp == null) null else qualifyAllTypesExpression(types, ex.elseExp)
+    }
+    _ when ex is ReturnExp => ex {
+      ex: qualifyAllTypesExpression(types, ex.ex)
+    }
+    _ when ex is ThrowExp => ex {
+      ex: qualifyAllTypesExpression(types, ex.ex)
+    }
+    _ when ex is ConstructExp => ex {
+      base: qualifyAllTypesExpression(types, ex.base),
+      values: ex.values.map({ pair =>
+        val (key, expr) = pair;
+
+        (key, qualifyAllTypesExpression(types, expr))
+      })
+    }
+    _ when ex is ConstructTupleExp => ex {
+      values: ex.values.map({ expr => qualifyAllTypesExpression(types, expr) })
+    }
+    _ when ex is MatchExp => ex {
+      base: qualifyAllTypesExpression(types, ex.base),
+      patterns: ex.patterns.map({pattern =>
+        val {base, guard, body} = pattern;
+
+        pattern {
+          base: qualifyAllTypesExpression(types, base),
+          guard: qualifyAllTypesExpression(types, guard),
+          body: qualifyAllTypesExpression(types, body),
+        }
+      })
+    }
+  }
+}
+
+private fun qualifyAllTypesType(types: Map[String, QualifiedName], type: Type, pos: Position): Type {
+  match (type) {
+    _ when type is DataType => type{fields: type.fields.map({pair =>
+      val (key, value) = pair;
+
+      (key, qualifyAllTypesType(types, value, pos))
+    })}
+    _ when type is FunctionType => qualifyAllTypesFunctionType(types, type, pos)
+    _ when type is VarArgsType => type{base: qualifyAllTypesType(types, type.base, pos)}
+    _ when type is TupleType => type{paramTypes: }
+  }
+}
+
+private fun qualifyAllTypesFunctionType(types: Map[String, QualifiedName], type: FunctionType, pos: Position): FunctionType {
+
 }
 

@@ -390,7 +390,7 @@ private val jString = JClass("String", mapOf(
       str[index].wrap()
     },
     "toUpperCase" to JNativeFunction {
-      it[0].unwrap<String>().toUpperCase().wrap()
+      it[0].unwrap<String>().uppercase().wrap()
     },
     "isEmpty" to JNativeFunction {
       it[0].unwrap<String>().isEmpty().wrap()
@@ -419,6 +419,9 @@ private val jString = JClass("String", mapOf(
 private val jChar = JClass(
   name = "Char",
   instanceMethods = mapOf(
+    "toUpperCase" to JNativeFunction {
+      it[0].unwrap<Char>().uppercaseChar().wrap()
+    },
     "toString" to JNativeFunction { it[0].unwrap<Char>().toString().wrap() }
   ),
   staticMethods = mapOf()
@@ -470,6 +473,19 @@ private val jList = JClass(
       val other = rawOther.unwrap<List<JValue>>()
       (self + other).wrap()
     },
+    "toSet" to JNativeFunction {
+      val (rawSelf) = it
+      val self = rawSelf.unwrap<List<JValue>>()
+
+      self.toSet().wrap()
+    },
+    "zip" to JNativeFunction {
+      val (rawFirst, rawSecond) = it
+      val first = rawFirst.unwrap<List<JValue>>()
+      val second = rawSecond.unwrap<List<JValue>>()
+
+      first.zip(second) { l, r -> listOf(l, r) }.wrap()
+    },
     "filter" to JNativeFunction {
       val (rawList, rawFunc) = it
       val list = rawList.unwrap<List<JValue>>()
@@ -486,6 +502,17 @@ private val jList = JClass(
 
       val result = list.map { item ->
         func(listOf(item))
+      }
+
+      result.wrap()
+    },
+    "flatMap" to JNativeFunction {
+      val (rawList, rawFunc) = it
+      val list = rawList.unwrap<List<JValue>>()
+      val func = rawFunc as JFunction
+
+      val result = list.flatMap { item ->
+        func(listOf(item)).unwrap<Iterable<JValue>>()
       }
 
       result.wrap()
@@ -533,7 +560,7 @@ private val jSet = JClass(
   name = "Set",
   staticMethods = mapOf(
     "of" to JNativeFunction {
-      it.toSet().wrap()
+      it.drop(1).toSet().wrap()
     }
   ),
   instanceMethods = mapOf(
@@ -541,7 +568,12 @@ private val jSet = JClass(
       val (rawSet, rawValue) = it
       val set = rawSet.unwrap<Set<JValue>>()
       (rawValue in set).wrap()
-    }
+    },
+    "add" to JNativeFunction {
+      val (rawSet, rawValue) = it
+      val set = rawSet.unwrap<Set<JValue>>()
+      (set + rawValue).wrap()
+    },
   )
 )
 

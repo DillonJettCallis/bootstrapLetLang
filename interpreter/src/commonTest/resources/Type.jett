@@ -11,6 +11,7 @@ atom NothingType
 atom ListType
 atom SetType
 atom MapType
+atom FileType
 
 type PrimitiveType
     = CharType
@@ -23,21 +24,25 @@ type PrimitiveType
     | UnitType
     | NothingType
 
-data AtomType = { name: String }
-data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType] }
-data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType] }
-data FunctionType = { paramTypes: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
-data VarArgsType = { base: Type }
-data TupleType = { paramTypes: List[Type] }
-data GenericType = { base: Type, paramTypes: List[Type] }
+data QualifiedName = { org: String, module: String, path: List[String] }
 
-// should only hold DateType, ProtocolType or QualifiedType pointing to one of these
-data MetaType = { base: Type }
+implement QualifiedName {
+  fun pretty(this): String = "${this.org}::${this.module}/${path.join( { it => it } )}"
+}
+
+data AtomType = { name: String, qualified: QualifiedName }
+data DataType = { name: String, fields: Map[String, Type], typeParams: List[PlaceholderType], qualified: QualifiedName }
+data ProtocolType = { name: String, functions: Map[String, Type], typeParams: List[PlaceholderType], qualified: QualifiedName }
+data FunctionType = { paramTypes: List[Type], varargType: List[Type], resultType: Type, typeParams: List[PlaceholderType] }
+data TupleType = { paramTypes: List[Type] }
+data GenericType = { base: DateType | ProtocolType, paramTypes: List[Type] }
+
+data MetaType = { base: DateType | ProtocolType }
+
 
 atom UnknownType
 
 data NamedType = { name: String }
-data QualifiedType = { org: String, module: String, path: List[String] }
 data PlaceholderType = { name: String }
 
 data UnionType = { paramTypes: List[Type] }
@@ -54,7 +59,7 @@ private fun unwrapUnionType(type: Type): List[Type] = if (type is UnionType) typ
 fun makeIntersectionType(left: Type, right: Type): IntersectionType = {
   val leftList = unwrapIntersectionType(left)
   val rightList = unwrapIntersectionType(right)
-  IntersectionTyp{ paramTypes: leftList.concat(rightList) }
+  IntersectionType{ paramTypes: leftList.concat(rightList) }
 }
 
 private fun unwrapIntersectionType(type: Type): List[Type] = if (type is IntersectionType) type.paramTypes else List.of(type)
@@ -70,7 +75,6 @@ type Type
     | GenericType
     | UnknownType
     | NamedType
-    | QualifiedType
     | PlaceholderType
     | UnionType
     | IntersectionType

@@ -4,7 +4,6 @@ import this/Checker.checkModule
 import this/Checker.Scope
 import this/Ast.AstModule
 import this/Ast.AstFile
-import this/JsBackend.js
 
 fun main(args: List[String]): Scope = {
   val srcDir = File.from(args.get(0));
@@ -23,21 +22,17 @@ fun main(args: List[String]): Scope = {
 
   val module = AstModule { files };
 
-  val jsDir = File.from('build/test/js')
+  return checkModule(module)
 
-  js(module, jsDir);
+  checker.forEach({pair =>
+    val (scope) = pair;
 
-//  val checker = checkModule(module)
+    scope.typeDefs.entries().forEach({ defPair =>
+      val (qualified, type) = defPair;
 
-//  checker.forEach({pair =>
-//    val (scope) = pair;
-
-//    scope.typeDefs.entries().forEach({ defPair =>
-//      val (qualified, type) = defPair;
-
-//      println("${qualified.path} => ${type}")
-//    })
-//  });
+      println("${qualified.path} => ${type}")
+    })
+  });
 
   return module;
 }

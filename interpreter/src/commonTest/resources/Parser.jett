@@ -438,7 +438,7 @@ private fun parseFunctionStatement(cursor: TokenCursor, pos: Position): (TokenCu
 
     val (bodyCursor, body) = parseExpression(equalsCursor)
 
-    val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), resultType, typeParams}
+    val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), varargType: List.of(), resultType, typeParams}
 
     val lambdaExp = LambdaExp{args: parameters.map({ it => val (first, second) = it; first }), body, type: functionType, pos}
 
@@ -1039,7 +1039,7 @@ private fun parseLambdaExp(cursor: TokenCursor, pos: Position): (TokenCursor, Ex
 
   val (bodyCursor, body) = parseBlockStatement(arrowCursor, List.of())
 
-  val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), resultType, typeParams: List.of()}
+  val functionType = FunctionType{paramTypes: parameters.map({ it => val (first, second) = it; second }), varargType: List.of(), resultType, typeParams: List.of()}
 
   return (bodyCursor, LambdaExp{args: parameters.map({ it => val (first, second) = it; first }), body: BlockExp{body, type: UnknownType, pos}, type: functionType, pos})
 }
@@ -1243,7 +1243,7 @@ private fun parseTypeFunctionResult(cursor: TokenCursor, parameters: List[Type])
   val (finalCursor, closeBracket) = nextCursor.next()
 
   if (closeBracket is TokenSymbol && closeBracket.value == "}") {
-    return (finalCursor, FunctionType{paramTypes: parameters, resultType, typeParams: List.of()})
+    return (finalCursor, FunctionType{paramTypes: parameters, varargType: List.of(), resultType, typeParams: List.of()})
   } else {
     closeBracket.pos.fail("Expected close of function type")
   }
