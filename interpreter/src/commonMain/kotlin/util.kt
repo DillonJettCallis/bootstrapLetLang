@@ -11,5 +11,5 @@ expect class FileImpl(path: String) {
 }
 
 fun FileImpl.relativePath(other: FileImpl): List<String> {
-  return path.substringAfter(other.path).trimStart('/').substringBeforeLast(".").split("/")
+  return path.substringAfter(other.path).trimStart('/').trimStart('\\').substringBeforeLast(".").split(Regex("[\\\\/]"))
 }

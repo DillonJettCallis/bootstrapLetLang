@@ -17,10 +17,11 @@ data StringTemplateString { raw: String }
 data StringTemplateChar { char: Char }
 data StringTemplate { strings: List[String], values: List[ParseExpression] }
 
-private type StringTemplateResult
-  = StringTemplateString
-  | StringTemplateChar
-  | StringTemplate
+private enum StringTemplateResult {
+  StringTemplateString,
+  StringTemplateChar,
+  StringTemplate,
+}
 
 fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String): ParseExpression = {
   val template = match (prefix) {

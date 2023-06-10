@@ -17,36 +17,26 @@ data NamedTypeExp { name: String }
 data GenericTypeExp { base: TypeExpression, params: List[TypeExpression] }
 data FunctionTypeExp { params: List[TypeExpression], result: TypeExpression, generics: List[String] }
 data TupleTypeExp { params: List[TypeExpression] }
-data UnionTypeExp { params: Set[TypeExpression] }
-data IntersectionTypeExp { params: Set[TypeExpression] }
 
-type TypeExpression
-  = NamedTypeExp
-  | GenericTypeExp
-  | FunctionTypeExp
-  | TupleTypeExp
-  | UnionTypeExp
-  | IntersectionTypeExp
-
-
-
+enum TypeExpression {
+  NamedTypeExp,
+  GenericTypeExp,
+  FunctionTypeExp,
+  TupleTypeExp,
+}
 
 // matching versions of the above, but with fully qualified names
 data QualifiedNamedTypeExp { name: QualifiedSymbol }
 data QualifiedGenericTypeExp { base: QualifiedTypeExpression, params: List[QualifiedTypeExpression] }
 data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression, generics: List[String] }
 data QualifiedTupleTypeExp { params: List[QualifiedTypeExpression] }
-data QualifiedUnionTypeExp { params: Set[QualifiedTypeExpression] }
-data QualifiedIntersectionTypeExp { params: Set[QualifiedTypeExpression] }
 
-type QualifiedTypeExpression
-  = QualifiedNamedTypeExp
-  | QualifiedGenericTypeExp
-  | QualifiedFunctionTypeExp
-  | QualifiedTupleTypeExp
-  | QualifiedUnionTypeExp
-  | QualifiedIntersectionTypeExp
-
+enum QualifiedTypeExpression {
+  QualifiedNamedTypeExp,
+  QualifiedGenericTypeExp,
+  QualifiedFunctionTypeExp,
+  QualifiedTupleTypeExp,
+}
 
 fun walkTypeExpressionTree(ex: QualifiedTypeExpression, action: { QualifiedTypeExpression -> QualifiedTypeExpression }): QualifiedTypeExpression = {
   val step = match (ex) {

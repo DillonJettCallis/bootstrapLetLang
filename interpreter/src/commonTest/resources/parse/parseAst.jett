@@ -4,46 +4,47 @@ import this/access.AccessModifier
 
 import this/type.typeExpression.TypeExpression
 
-type ParseExpression
-    = ParseNullLiteralExp
-    | ParseBooleanLiteralExp
-    | ParseNumberLiteralExp
-    | ParseStringLiteralExp
-    | ParseCharLiteralExp
-    | ParseIdentifierExp
-    | ParseBinaryOpExp
-    | ParseUnaryOpExp
-    | ParseBlockExp
-    | ParseFieldAccessExp
-    | ParseCallExp
-    | ParseMethodCallExp
-    | ParseLambdaExp
-    | ParseIfExp
-    | ParseReturnExp
-    | ParseThrowExp
-    | ParseConstructExp
-    | ParseConstructTupleExp
-    | ParseMatchExp
+enum ParseExpression {
+  ParseNullLiteralExp,
+  ParseBooleanLiteralExp,
+  ParseNumberLiteralExp,
+  ParseStringLiteralExp,
+  ParseCharLiteralExp,
+  ParseIdentifierExp,
+  ParseBinaryOpExp,
+  ParseUnaryOpExp,
+  ParseBlockExp,
+  ParseFieldAccessExp,
+  ParseCallExp,
+  ParseMethodCallExp,
+  ParseLambdaExp,
+  ParseIfExp,
+  ParseReturnExp,
+  ParseThrowExp,
+  ParseConstructExp,
+  ParseConstructTupleExp,
+  ParseMatchExp,
+}
 
-type ParseStatement
-    = ParseExpressionStatement
-    | ParseAssignmentStatement
-    | ParseFunctionStatement
-    | ParseTypeStatement
-    | ParseImportStatement
-    | ParseDeconstructDataStatement
-    | ParseDeconstructTupleStatement
-    | ParseDebuggerStatement
+enum ParseStatement {
+  ParseExpressionStatement,
+  ParseAssignmentStatement,
+  ParseFunctionStatement,
+  ParseDeconstructDataStatement,
+  ParseDeconstructTupleStatement,
+  ParseDebuggerStatement,
+}
 
-type ParseDeclaration
-    = ParseAtomDeclare
-    | ParseDataDeclare
-    | ParseTypeDeclare
-    | ParseFunctionDeclare
-    | ParseImportDeclare
-    | ParseConstantDeclare
-    | ParseProtocolDeclare
-    | ParseImplDeclare
+enum ParseDeclaration {
+  ParseAtomDeclare,
+  ParseDataDeclare,
+  ParseEnumDeclare,
+  ParseFunctionDeclare,
+  ParseImportDeclare,
+  ParseConstantDeclare,
+  ParseProtocolDeclare,
+  ParseImplDeclare,
+}
 
 data ParseNullLiteralExp { pos: Position }
 data ParseBooleanLiteralExp { value: Boolean, pos: Position }
@@ -70,8 +71,6 @@ data ParseMatchPattern { base: ParseExpression, guard: ParseExpression, body: Pa
 data ParseExpressionStatement { ex: ParseExpression, pos: Position }
 data ParseAssignmentStatement { name: String, declaredType: TypeExpression, body: ParseExpression, pos: Position }
 data ParseFunctionStatement { name: String, generics: List[String], body: ParseLambdaExp, pos: Position }
-data ParseTypeStatement { name: String, value: TypeExpression, pos: Position }
-data ParseImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
 data ParseDeconstructDataStatement { base: ParseExpression, values: List[(String, String)], pos: Position }
 data ParseDeconstructTupleStatement { base: ParseExpression, names: List[String], pos: Position }
 data ParseDebuggerStatement { pos: Position }
@@ -79,9 +78,9 @@ data ParseDebuggerStatement { pos: Position }
 
 data ParseAtomDeclare { name: String, access: AccessModifier, pos: Position }
 data ParseDataDeclare { name: String, generics: List[String], body: Map[String, TypeExpression], access: AccessModifier, pos: Position }
-data ParseTypeDeclare { type: ParseTypeStatement, access: AccessModifier, pos: Position }
+data ParseEnumDeclare { name: String, values: List[String], access: AccessModifier, pos: Position }
 data ParseFunctionDeclare { func: ParseFunctionStatement, access: AccessModifier, pos: Position }
-data ParseImportDeclare { statement: ParseImportStatement, access: AccessModifier, pos: Position }
+data ParseImportDeclare { org: String, module: String, path: List[String], name: String, access: AccessModifier, pos: Position }
 data ParseConstantDeclare { assign: ParseAssignmentStatement, access: AccessModifier, pos: Position }
 data ParseProtocolDeclare { name: String, generics: List[String], funcs: List[(String, ParseProtocolFunctionDeclare)], access: AccessModifier, pos: Position }
 data ParseImplDeclare { base: String, proto: String, funcs: List[ParseFunctionDeclare], access: AccessModifier, pos: Position }

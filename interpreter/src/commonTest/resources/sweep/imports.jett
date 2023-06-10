@@ -17,7 +17,7 @@ fun checkImports(mod: ParseModule, declared: Map[QualifiedSymbol, AccessModifier
   mod.files.values().forEach({ file =>
     file.declarations.forEach({ dec =>
       if (dec is ParseImportDeclare) {
-        val { org, module, path } = dec.statement
+        val { org, module, path } = dec
 
         val symbol = QualifiedSymbol { org, module, path }
 

@@ -53,7 +53,7 @@ data TokenString { value: String, pos: Position }
 data TokenNumber { value: String, pos: Position }
 data TokenEOF { pos: Position }
 
-type Token = TokenWord | TokenSymbol | TokenString | TokenNumber | TokenEOF
+enum Token { TokenWord, TokenSymbol, TokenString, TokenNumber, TokenEOF }
 
 private val lowerCase: String = 'abcdefghijklmnopqrstuvwxyz'
 private val upperCase: String = lowerCase.toUpperCase()

@@ -52,17 +52,15 @@ data class MatchExp(val base: Expression, val patterns: List<MatchPattern>, over
 data class ExpressionStatement(val ex: Expression, override val pos: Position): Statement()
 data class AssignmentStatement(val name: String, val declaredType: Type, val body: Expression, override val pos: Position): Statement()
 data class FunctionStatement(val name: String, val body: LambdaExp, override val pos: Position): Statement()
-data class TypeStatement(val name: String, val value: Type, override val pos: Position): Statement()
-data class ImportStatement(val org: String, val module: String, val path: List<String>, override val pos: Position): Statement()
 data class DeconstructDataStatement(val base: Expression, val values: List<Pair<String, String>>, override val pos: Position): Statement()
 data class DeconstructTupleStatement(val base: Expression, val names: List<String>, override val pos: Position): Statement()
 data class DebuggerStatement(override val pos: Position): Statement()
 
 data class AtomDeclare(val name: String, override val access: AccessModifier, override val pos: Position): Declaration()
 data class DataDeclare(val name: String, val body: Map<String, Type>, override val access: AccessModifier, override val pos: Position): Declaration()
-data class TypeDeclare(val type: TypeStatement, override val access: AccessModifier, override val pos: Position): Declaration()
+data class EnumDeclare(val name: String, val values: List<String>, override val access: AccessModifier, override val pos: Position): Declaration()
 data class FunctionDeclare(val func: FunctionStatement, override val access: AccessModifier, override val pos: Position): Declaration()
-data class ImportDeclare(val import: ImportStatement, override val pos: Position): Declaration() { override val access = AccessModifier.Private }
+data class ImportDeclare(val org: String, val module: String, val path: List<String>, override val pos: Position): Declaration() { override val access = AccessModifier.Private }
 data class ConstantDeclare(val assign: AssignmentStatement, val type: Type, override val access: AccessModifier, override val pos: Position): Declaration()
 data class ProtocolDeclare(val name: String, val funcs: List<Pair<String, Type>>, override val access: AccessModifier, override val pos: Position): Declaration()
 data class ImplDeclare(val base: Type, val proto: Type?, val funcs: List<FunctionDeclare>, override val access: AccessModifier, override val pos: Position): Declaration()

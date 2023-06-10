@@ -34,12 +34,10 @@ fun executePackage(pack: AstModule, args: List<String>): Any? {
     val thisScope = core[path.joinToString("."), dummyPos].unwrap<Scope>()
 
     mod.declarations.filterIsInstance<ImportDeclare>().forEach {
-      val (packageName, modulePath, path) = it.import
-
       // TODO: For now we assume only internal imports. All core libs are auto imported
 
-      val init = path.dropLast(1).joinToString(".")
-      val value = path.last()
+      val init = it.path.dropLast(1).joinToString(".")
+      val value = it.path.last()
 
       thisScope[value] = core[init, it.pos].unwrap<Scope>()[value, it.pos]
     }
@@ -57,7 +55,7 @@ private fun buildScope(file: AstFile, core: Scope): Scope {
     when (it) {
       is AtomDeclare -> moduleScope[it.name] = JAtom(it.name)
       is DataDeclare -> moduleScope[it.name] = JClass(it.name, emptyMap(), emptyMap())
-      is TypeDeclare -> moduleScope[it.type.name] = JAtom(it.type.name)
+      is EnumDeclare -> moduleScope[it.name] = JClass(it.name, emptyMap(), emptyMap())
       is ImportDeclare -> {}
       is ConstantDeclare -> moduleScope[it.assign.name] = JConst { interpret(it.assign.body, moduleScope) }
       is ProtocolDeclare -> TODO()
@@ -285,7 +283,6 @@ private fun interpret(ex: Expression, scope: Scope): JValue {
             local[state.name] = state.body.makeJFunction(local)
             JNull
           }
-          is TypeStatement, is ImportStatement -> JNull
           is DeconstructDataStatement -> {
             val base = interpret(state.base, local)
 
@@ -433,7 +430,7 @@ private val jString = JClass("String", mapOf(
       str[index].wrap()
     },
     "toUpperCase" to JFunction {
-      it[0].unwrap<String>().toUpperCase().wrap()
+      it[0].unwrap<String>().uppercase().wrap()
     },
     "isEmpty" to JFunction {
       it[0].unwrap<String>().isEmpty().wrap()

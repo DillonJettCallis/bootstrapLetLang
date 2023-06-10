@@ -27,7 +27,6 @@ import this/sweep.qualifiedAst.QualifiedIdentifierExp
 import this/sweep.qualifiedAst.QualifiedIfExp
 import this/sweep.qualifiedAst.QualifiedImplDeclare
 import this/sweep.qualifiedAst.QualifiedImportDeclare
-import this/sweep.qualifiedAst.QualifiedImportStatement
 import this/sweep.qualifiedAst.QualifiedLambdaExp
 import this/sweep.qualifiedAst.QualifiedMatchExp
 import this/sweep.qualifiedAst.QualifiedMatchPattern
@@ -40,8 +39,7 @@ import this/sweep.qualifiedAst.QualifiedReturnExp
 import this/sweep.qualifiedAst.QualifiedStatement
 import this/sweep.qualifiedAst.QualifiedStringLiteralExp
 import this/sweep.qualifiedAst.QualifiedThrowExp
-import this/sweep.qualifiedAst.QualifiedTypeDeclare
-import this/sweep.qualifiedAst.QualifiedTypeStatement
+import this/sweep.qualifiedAst.QualifiedEnumDeclare
 import this/sweep.qualifiedAst.QualifiedUnaryOpExp
 
 import this/parse.parseAst.ParseAssignmentStatement
@@ -69,7 +67,6 @@ import this/parse.parseAst.ParseIdentifierExp
 import this/parse.parseAst.ParseIfExp
 import this/parse.parseAst.ParseImplDeclare
 import this/parse.parseAst.ParseImportDeclare
-import this/parse.parseAst.ParseImportStatement
 import this/parse.parseAst.ParseLambdaExp
 import this/parse.parseAst.ParseMatchExp
 import this/parse.parseAst.ParseMatchPattern
@@ -82,23 +79,18 @@ import this/parse.parseAst.ParseReturnExp
 import this/parse.parseAst.ParseStatement
 import this/parse.parseAst.ParseStringLiteralExp
 import this/parse.parseAst.ParseThrowExp
-import this/parse.parseAst.ParseTypeDeclare
-import this/parse.parseAst.ParseTypeStatement
+import this/parse.parseAst.ParseEnumDeclare
 import this/parse.parseAst.ParseUnaryOpExp
 
 import this/type.typeExpression.NamedTypeExp
 import this/type.typeExpression.GenericTypeExp
 import this/type.typeExpression.FunctionTypeExp
 import this/type.typeExpression.TupleTypeExp
-import this/type.typeExpression.UnionTypeExp
-import this/type.typeExpression.IntersectionTypeExp
 import this/type.typeExpression.TypeExpression
 import this/type.typeExpression.QualifiedNamedTypeExp
 import this/type.typeExpression.QualifiedGenericTypeExp
 import this/type.typeExpression.QualifiedFunctionTypeExp
 import this/type.typeExpression.QualifiedTupleTypeExp
-import this/type.typeExpression.QualifiedUnionTypeExp
-import this/type.typeExpression.QualifiedIntersectionTypeExp
 import this/type.typeExpression.QualifiedTypeExpression
 
 private data Scope {
@@ -202,15 +194,13 @@ private fun collectDeclaration(dec: ParseDeclaration, path: List[String], scope:
     _ when dec is ParseDataDeclare => {
       scope.set(dec.name, qualify(dec.name))
     }
-    _ when dec is ParseTypeDeclare => {
-      val state = dec.type
-
-      scope.set(state.name, qualify(state.name))
+    _ when dec is ParseEnumDeclare => {
+      scope.set(dec.name, qualify(dec.name))
     }
     _ when dec is ParseImportDeclare => {
-      val { org, module, path: innerPath } = dec.statement
+      val { org, module, path: innerPath } = dec
 
-      scope.set(dec.statement.name, QualifiedNamedTypeExp { name: QualifiedSymbol { org, module, path } })
+      scope.set(dec.name, QualifiedNamedTypeExp { name: QualifiedSymbol { org, module, path } })
     }
     _ when dec is ParseProtocolDeclare => {
       scope.set(dec.name, qualify(dec.name))
@@ -243,10 +233,10 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
         access, body
       }
     }
-    _ when dec is ParseTypeDeclare => {
-      val { type, access, pos } = dec
+    _ when dec is ParseEnumDeclare => {
+      val { name, values, access, pos } = dec
 
-      QualifiedTypeDeclare { type: qualifyTypeStatement(type, scope), access, pos }
+      QualifiedEnumDeclare { name, values: values.map({ name => scope.get(name, pos) }), access, pos }
     }
     _ when dec is ParseFunctionDeclare => {
       val { func, access, pos } = dec
@@ -254,9 +244,9 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
       QualifiedFunctionDeclare { func: qualifyFunctionStatement(func, scope), access, pos }
     }
     _ when dec is ParseImportDeclare => {
-      val { statement, access, pos } = dec
+      val { org, module, path, name, access, pos } = dec
 
-      QualifiedImportDeclare { statement: qualifyImportStatement(statement, scope), access, pos }
+      QualifiedImportDeclare { org, module, path, name, access, pos }
     }
     _ when dec is ParseConstantDeclare => {
       val { assign, access, pos } = dec
@@ -321,17 +311,6 @@ private fun qualifyStatement(state: ParseStatement, scope: Scope): (QualifiedSta
     _ when state is ParseDeconstructDataStatement => (qualifyDeconstructDataStatement(state, scope), scope)
     _ when state is ParseDeconstructTupleStatement => (qualifyDeconstructTupleStatement(state, scope), scope)
     _ when state is ParseDebuggerStatement => (qualifyDebuggerStatement(state, scope), scope)
-    _ when state is ParseTypeStatement => {
-      val result = qualifyTypeStatement(state, scope);
-
-      (result, scope.set(result.name, result.value))
-    }
-    _ when state is ParseImportStatement => {
-      val result = qualifyImportStatement(state, scope);
-      val { org, module, path } = result;
-
-      (result, scope.set(result.name, QualifiedSymbol { org, module, path } ))
-    }
   };
 }
 
@@ -361,22 +340,6 @@ private fun qualifyFunctionStatement(state: ParseFunctionStatement, scope: Scope
     body: qualifyLambdaExpression(body, childScope),
     pos
   }
-}
-
-private fun qualifyTypeStatement(state: ParseTypeStatement, scope: Scope): QualifiedTypeStatement = {
-  val { name, value, pos } = state;
-
-  QualifiedTypeStatement {
-    name,
-    value: qualifyTypeExpression(value, pos, scope),
-    pos
-  }
-}
-
-private fun qualifyImportStatement(state: ParseImportStatement, scope: Scope): QualifiedImportStatement = {
-  val { org, module, path, name, pos } = state
-
-  QualifiedImportStatement { org, module, path, name, pos }
 }
 
 private fun qualifyDeconstructDataStatement(state: ParseDeconstructDataStatement, scope: Scope): QualifiedDeconstructDataStatement = {

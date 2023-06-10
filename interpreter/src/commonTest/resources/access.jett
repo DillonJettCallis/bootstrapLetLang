@@ -8,4 +8,4 @@ atom Protected
 atom Internal
 atom Private
 
-type AccessModifier = Public | Protected | Internal | Private
+enum AccessModifier { Public, Protected, Internal, Private }

@@ -2,7 +2,7 @@ import this/parse.parseAst.ParseModule
 
 import this/parse.parseAst.ParseAtomDeclare
 import this/parse.parseAst.ParseDataDeclare
-import this/parse.parseAst.ParseTypeDeclare
+import this/parse.parseAst.ParseEnumDeclare
 import this/parse.parseAst.ParseFunctionDeclare
 import this/parse.parseAst.ParseConstantDeclare
 import this/parse.parseAst.ParseImportDeclare
@@ -30,7 +30,7 @@ fun collectSymbols(mod: ParseModule): Map[QualifiedSymbol, AccessModifier] = {
        match (dec) {
         _ when dec is ParseAtomDeclare => sum.set(symbol(dec.name), dec.access)
         _ when dec is ParseDataDeclare => sum.set(symbol(dec.name), dec.access)
-        _ when dec is ParseTypeDeclare => sum.set(symbol(dec.type.name), dec.access)
+        _ when dec is ParseEnumDeclare => sum.set(symbol(dec.name), dec.access)
         _ when dec is ParseFunctionDeclare => sum.set(symbol(dec.func.name), dec.access)
         _ when dec is ParseConstantDeclare => sum.set(symbol(dec.assign.name), dec.access)
         _ when dec is ParseImportDeclare => sum // the only one that doesn't export anything ever

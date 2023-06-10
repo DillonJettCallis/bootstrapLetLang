@@ -6,7 +6,7 @@ import this/sweep.qualifiedAst.QualifiedImplDeclare
 import this/sweep.qualifiedAst.QualifiedImportDeclare
 import this/sweep.qualifiedAst.QualifiedModule
 import this/sweep.qualifiedAst.QualifiedProtocolDeclare
-import this/sweep.qualifiedAst.QualifiedTypeDeclare
+import this/sweep.qualifiedAst.QualifiedEnumDeclare
 
 import this/access.AccessModifier
 import this/access.Public
@@ -21,15 +21,13 @@ import this/type.typeExpression.QualifiedNamedTypeExp
 import this/type.typeExpression.QualifiedGenericTypeExp
 import this/type.typeExpression.QualifiedFunctionTypeExp
 import this/type.typeExpression.QualifiedTupleTypeExp
-import this/type.typeExpression.QualifiedUnionTypeExp
-import this/type.typeExpression.QualifiedIntersectionTypeExp
 import this/type.typeExpression.defineThis
 
 import this/type.type.ConcreteType
 import this/type.type.AtomType
 import this/type.type.DataType
 import this/type.type.ProtocolType
-import this/type.type.AliasType
+import this/type.type.EnumType
 
 data Dictionary {
   // holds all types
@@ -76,11 +74,13 @@ implement Dictionary {
               .setValue(name, QualifiedNamedTypeExp { name: meta } )
               .setType(name, DataType { name, generics, fields })
           }
-          _ when dec is QualifiedTypeDeclare => {
-            val name = symbol(dec.type.name)
+          _ when dec is QualifiedEnumDeclare => {
+            val name = symbol(dec.name)
+            val meta = name.child('[meta]');
 
-            // a type alias is only an alias, it does not create a new value, only publish type information
-            sum.setType(name, AliasType { name, value: dec.type.value })
+            sum.setType(meta, AtomType { name: meta })
+              .setValue(name, QualifiedNamedTypeExp { name: meta })
+              .setType(name, EnumType { name, values: dec.values })
           }
           _ when dec is QualifiedFunctionDeclare => {
             val { name: rawName, generics, body } = dec.func;
