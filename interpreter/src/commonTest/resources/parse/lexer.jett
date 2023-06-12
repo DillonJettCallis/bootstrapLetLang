@@ -17,7 +17,7 @@ data StringCursor { raw: String, index: Int, pos: Position }
 
 implement StringCursor {
 
-  fun isEmpty(this): Boolean = this.index >= this.raw.size
+  fun isEmpty(this): Boolean = this.index >= this.raw.size()
   fun isNotEmpty(this): Boolean = !this.isEmpty()
   fun curr(this): Char = this.raw.getCharAt(this.index)
   fun skip(this): StringCursor = this{index: this.index + 1, pos: this.pos.increment(this.curr())}

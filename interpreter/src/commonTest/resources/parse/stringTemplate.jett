@@ -44,6 +44,7 @@ fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String): P
     _ when template is StringTemplateChar => ParseCharLiteralExp{value: template.char, pos}
     _ when template is StringTemplate => ParseCallExp {
          func: ParseIdentifierExp{name: "@template", pos},
+         typeArguments: List.of(),
          arguments: List.of(
            listOfCall(template.strings.map({ value => ParseStringLiteralExp{value, pos} }), pos),
            listOfCall(template.values, pos)
@@ -99,8 +100,8 @@ private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (
   val (nextCursor, nextChar) = cursor.next()
 
   match (nextChar) {
-    char'}' when inside.last() == char'{' && inside.size == 1 => return (nextCursor, init)
-    char'}' when inside.last() == char'{' && inside.size > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
+    char'}' when inside.last() == char'{' && inside.size() == 1 => return (nextCursor, init)
+    char'}' when inside.last() == char'{' && inside.size() > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     char'{' when inside.last() == char'{' => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
     _ when quotes.contains(nextChar) && inside.last() == nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     _ when quotes.contains(nextChar) && inside.last() != nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
@@ -109,8 +110,9 @@ private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (
 }
 
 fun listOfCall(arguments: List[ParseExpression], pos: Position): ParseCallExp = ParseCallExp {
-  func: ParseBinaryOpExp{ op: '.', left: ParseIdentifierExp{ name: 'List', pos }, right: ParseIdentifierExp{ name: 'of', pos } },
+  func: ParseBinaryOpExp{ op: '.', left: ParseIdentifierExp{ name: 'List', pos }, right: ParseIdentifierExp{ name: 'of', pos }, pos },
   arguments,
+  typeArguments: List.of(),
   pos
 }
 

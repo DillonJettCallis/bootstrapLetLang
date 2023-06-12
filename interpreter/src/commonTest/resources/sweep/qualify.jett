@@ -230,7 +230,8 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
         name,
         generics,
         body: newBody,
-        access, body
+        access,
+        pos
       }
     }
     _ when dec is ParseEnumDeclare => {
@@ -352,11 +353,12 @@ private fun qualifyDeconstructDataStatement(state: ParseDeconstructDataStatement
 }
 
 private fun qualifyDeconstructTupleStatement(state: ParseDeconstructTupleStatement, scope: Scope): QualifiedDeconstructTupleStatement = {
-  val { base, values, pos } = state
+  val { base, names, pos } = state
 
   QualifiedDeconstructTupleStatement {
     base: qualifyExpression(base, scope),
-    values, pos
+    names,
+    pos
   }
 }
 
@@ -395,7 +397,7 @@ private fun qualifyExpression(ex: ParseExpression, scope: Scope): QualifiedExpre
       val (_, body) = ex.body.fold( (scope, List.of()), { pair, state =>
         val (scope, result) = pair;
 
-        val (nextScope, nextEx) = qualifyStatement(state, scope);
+        val (nextEx, nextScope) = qualifyStatement(state, scope);
 
         (nextScope, result.add(nextEx))
       });
@@ -424,7 +426,7 @@ private fun qualifyExpression(ex: ParseExpression, scope: Scope): QualifiedExpre
     _ when ex is ParseMethodCallExp => {
       val { base, name, arguments, typeArguments, pos } = ex;
 
-      QualifiedCallExp {
+      QualifiedMethodCallExp {
         base: qualifyExpression(base, scope),
         name,
         arguments: arguments.map({ it => qualifyExpression(it, scope) }),
@@ -478,7 +480,7 @@ private fun qualifyExpression(ex: ParseExpression, scope: Scope): QualifiedExpre
       val { base, patterns, pos } = ex;
 
       QualifiedMatchExp {
-        base: qualifyExpression(base),
+        base: qualifyExpression(base, scope),
         patterns: patterns.map({ pattern =>
           val { base, guard, body, pos } = pattern;
 
@@ -525,22 +527,12 @@ private fun qualifyTypeExpression(ex: TypeExpression, pos: Position, scope: Scop
     _ when ex is FunctionTypeExp => {
       QualifiedFunctionTypeExp {
         params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) }),
-        result: qualifyTypeExpression(ex.resultType, pos, scope),
+        result: qualifyTypeExpression(ex.result, pos, scope),
         generics: ex.generics
       }
     }
     _ when ex is TupleTypeExp => {
       QualifiedTupleTypeExp {
-        params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
-      }
-    }
-    _ when ex is UnionTypeExp => {
-      QualifiedUnionTypeExp {
-        params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
-      }
-    }
-    _ when ex is IntersectionTypeExp => {
-      QualifiedIntersectionTypeExp {
         params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
       }
     }

@@ -64,7 +64,7 @@ private data TokenCursor { tokens: List[Token], index: Int }
 
 implement TokenCursor {
 
-  fun isEmpty(this): Boolean = this.index + 1 >= this.tokens.size
+  fun isEmpty(this): Boolean = this.index + 1 >= this.tokens.size()
   fun curr(this): Token = this.tokens.get(this.index)
   fun skip(this): TokenCursor = this{index: this.index + 1}
   fun next(this): (TokenCursor, Token) = (this.skip(), this.curr())
@@ -549,7 +549,7 @@ private fun parseDestructureDataPatterns(cursor: TokenCursor, init: List[(String
     (firstCursor, name)
   }
 
-  val result = init.add( (baseName, name) )
+  val result = init.add( (name, baseName) )
 
   val (endCursor, maybeEnd) = baseCursor.next()
 
@@ -1224,7 +1224,7 @@ private fun parseTypeFunctionResult(cursor: TokenCursor, parameters: List[TypeEx
   val (finalCursor, closeBracket) = nextCursor.next()
 
   if (closeBracket is TokenSymbol && closeBracket.value == "}") {
-    return (finalCursor, FunctionTypeExp{params: parameters, generics: List.of(), resultType})
+    return (finalCursor, FunctionTypeExp{params: parameters, generics: List.of(), result: resultType})
   } else {
     closeBracket.pos.fail("Expected close of function type")
   }

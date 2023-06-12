@@ -482,7 +482,7 @@ private tailrec fun parseDestructureDataPatterns(cursor: TokenCursor, init: List
     firstCursor to name
   }
 
-  val result = init + (baseName to name)
+  val result = init + (name to baseName)
 
   val (endCursor, maybeEnd) = baseCursor.next()
 

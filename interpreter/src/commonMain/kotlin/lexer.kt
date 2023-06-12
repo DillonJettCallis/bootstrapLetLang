@@ -43,6 +43,10 @@ data class StringCursor(val raw: String, val index: Int, val pos: Position) {
 }
 
 data class Position(val line: Int, val col: Int, val src: String) {
+  companion object {
+    val native = Position(0, 0, "<Native>")
+  }
+
   fun increment(next: Char): Position = if (next == '\n') this.copy(line = line + 1, col = 1) else this.copy(col = col + 1)
   fun fail(message: String): Nothing = throw Exception("$message at $line:$col in $src")
 }
