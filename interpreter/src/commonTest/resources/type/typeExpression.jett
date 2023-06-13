@@ -1,0 +1,69 @@
+import this/symbols.QualifiedSymbol
+
+/*
+ * A type expression represents the declarable types of a variable, argument or function return type
+ *
+ * example:
+ * ```
+ * // String is the declared type here
+ * val temp: String = ""
+ * ```
+ *
+ * This means that a type expression cannot declare new generic params, it can only use them.
+ * It also means that all params and results of a function type expression are required, unlike a lambda impl.
+ */
+
+data NamedTypeExp { name: String }
+data GenericTypeExp { base: TypeExpression, params: List[TypeExpression] }
+data FunctionTypeExp { params: List[TypeExpression], result: TypeExpression, generics: List[String] }
+data TupleTypeExp { params: List[TypeExpression] }
+
+enum TypeExpression {
+  NamedTypeExp,
+  GenericTypeExp,
+  FunctionTypeExp,
+  TupleTypeExp,
+}
+
+// matching versions of the above, but with fully qualified names
+data QualifiedNamedTypeExp { name: QualifiedSymbol }
+data QualifiedGenericTypeExp { base: QualifiedTypeExpression, params: List[QualifiedTypeExpression] }
+data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression, generics: List[String] }
+data QualifiedTupleTypeExp { params: List[QualifiedTypeExpression] }
+
+enum QualifiedTypeExpression {
+  QualifiedNamedTypeExp,
+  QualifiedGenericTypeExp,
+  QualifiedFunctionTypeExp,
+  QualifiedTupleTypeExp,
+}
+
+fun walkTypeExpressionTree(ex: QualifiedTypeExpression, action: { QualifiedTypeExpression -> QualifiedTypeExpression }): QualifiedTypeExpression = {
+  val step = match (ex) {
+    _ when ex is QualifiedNamedTypeExp => ex
+    _ when ex is QualifiedGenericTypeExp => QualifiedGenericTypeExp {
+      base: walkTypeExpressionTree(ex.base, action),
+      params: ex.params.map({ it => walkTypeExpressionTree(it, action) })
+    }
+    _ when ex is QualifiedFunctionTypeExp => ex {
+      params: ex.params.map(action),
+      result: action(result)
+    }
+    _ when ex is QualifiedTupleTypeExp => QualifiedTupleTypeExp { params: ex.params.map(action) }
+    _ when ex is QualifiedUnionTypeExp => QualifiedUnionTypeExp { params: ex.params.map(action) }
+    _ when ex is QualifiedIntersectionTypeExp => QualifiedIntersectionTypeExp { params: ex.params.map(action) }
+  };
+
+  return action(step);
+}
+
+fun defineThis(ex: QualifiedTypeExpression, thisDef: QualifiedSymbol): QualifiedTypeExpression = {
+  val replacement = QualifiedNamedTypeExp { name: thisDef };
+
+  walkTypeExpressionTree(ex, { ex =>
+    match (ex) {
+      _ when ex is QualifiedNamedTypeExp && ex.name == 'This' => replacement
+      _ => ex
+    }
+  })
+}

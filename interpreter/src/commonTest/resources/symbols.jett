@@ -1,0 +1,6 @@
+
+data QualifiedSymbol { org: String, module: String, path: List[String] }
+
+implement QualifiedSymbol {
+  fun child(this, name: String): QualifiedSymbol = this{path: this.path.add(name)}
+}

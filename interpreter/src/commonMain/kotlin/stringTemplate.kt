@@ -31,6 +31,7 @@ fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String? = 
         ListLiteralExp(template.strings.map { StringLiteralExp(it, pos) }, listOfType(StringType), pos),
         ListLiteralExp(template.values, listOfType(AnyType), pos)
       ),
+      typeArguments = emptyList(),
       type = StringType,
       pos = pos)
   }

@@ -1,0 +1,52 @@
+import this/parse.parseAst.ParseModule
+
+import this/parse.parseAst.ParseAtomDeclare
+import this/parse.parseAst.ParseDataDeclare
+import this/parse.parseAst.ParseEnumDeclare
+import this/parse.parseAst.ParseFunctionDeclare
+import this/parse.parseAst.ParseConstantDeclare
+import this/parse.parseAst.ParseImportDeclare
+import this/parse.parseAst.ParseProtocolDeclare
+import this/parse.parseAst.ParseImplDeclare
+
+import this/access.AccessModifier
+import this/access.Public
+import this/access.Protected
+import this/access.Internal
+import this/access.Private
+
+import this/symbols.QualifiedSymbol
+
+/**
+ * Return a set of ALL declared things inside this module, with only the access level provided
+ */
+fun collectSymbols(mod: ParseModule): Map[QualifiedSymbol, AccessModifier] = {
+  mod.files.values().fold(Map.of(), { sum, file =>
+    fun method(base: List[String]): QualifiedSymbol = QualifiedSymbol { org: 'this', module: 'this', path: file.path.concat(base) }
+
+    fun symbol(name: String): QualifiedSymbol = method(List.of(name))
+
+    file.declarations.fold(sum, { sum, dec =>
+       match (dec) {
+        _ when dec is ParseAtomDeclare => sum.set(symbol(dec.name), dec.access)
+        _ when dec is ParseDataDeclare => sum.set(symbol(dec.name), dec.access)
+        _ when dec is ParseEnumDeclare => sum.set(symbol(dec.name), dec.access)
+        _ when dec is ParseFunctionDeclare => sum.set(symbol(dec.func.name), dec.access)
+        _ when dec is ParseConstantDeclare => sum.set(symbol(dec.assign.name), dec.access)
+        _ when dec is ParseImportDeclare => sum // the only one that doesn't export anything ever
+        _ when dec is ParseProtocolDeclare => dec.pos.fail("Protocol declarations are not supported yet")
+        _ when dec is ParseImplDeclare => {
+          if (dec.proto == null) {
+            dec.funcs.fold(sum, { sum, func =>
+              sum.set(method( List.of(dec.base, func.func.name) ), dec.access)
+            })
+          } else {
+            dec.pos.fail("Protocol implementations are not supported yet")
+          }
+        }
+      };
+    })
+  })
+}
+
+

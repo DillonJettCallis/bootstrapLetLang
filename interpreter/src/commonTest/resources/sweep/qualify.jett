@@ -1,0 +1,544 @@
+import this/position.Position
+
+import this/symbols.QualifiedSymbol
+
+import this/sweep.qualifiedAst.QualifiedAssignmentStatement
+import this/sweep.qualifiedAst.QualifiedAtomDeclare
+import this/sweep.qualifiedAst.QualifiedBinaryOpExp
+import this/sweep.qualifiedAst.QualifiedBlockExp
+import this/sweep.qualifiedAst.QualifiedBooleanLiteralExp
+import this/sweep.qualifiedAst.QualifiedCallExp
+import this/sweep.qualifiedAst.QualifiedCharLiteralExp
+import this/sweep.qualifiedAst.QualifiedConstantDeclare
+import this/sweep.qualifiedAst.QualifiedConstructExp
+import this/sweep.qualifiedAst.QualifiedConstructTupleExp
+import this/sweep.qualifiedAst.QualifiedDataDeclare
+import this/sweep.qualifiedAst.QualifiedDebuggerStatement
+import this/sweep.qualifiedAst.QualifiedDeclaration
+import this/sweep.qualifiedAst.QualifiedDeconstructDataStatement
+import this/sweep.qualifiedAst.QualifiedDeconstructTupleStatement
+import this/sweep.qualifiedAst.QualifiedExpression
+import this/sweep.qualifiedAst.QualifiedExpressionStatement
+import this/sweep.qualifiedAst.QualifiedFieldAccessExp
+import this/sweep.qualifiedAst.QualifiedFile
+import this/sweep.qualifiedAst.QualifiedFunctionDeclare
+import this/sweep.qualifiedAst.QualifiedFunctionStatement
+import this/sweep.qualifiedAst.QualifiedIdentifierExp
+import this/sweep.qualifiedAst.QualifiedIfExp
+import this/sweep.qualifiedAst.QualifiedImplDeclare
+import this/sweep.qualifiedAst.QualifiedImportDeclare
+import this/sweep.qualifiedAst.QualifiedLambdaExp
+import this/sweep.qualifiedAst.QualifiedMatchExp
+import this/sweep.qualifiedAst.QualifiedMatchPattern
+import this/sweep.qualifiedAst.QualifiedMethodCallExp
+import this/sweep.qualifiedAst.QualifiedModule
+import this/sweep.qualifiedAst.QualifiedNullLiteralExp
+import this/sweep.qualifiedAst.QualifiedNumberLiteralExp
+import this/sweep.qualifiedAst.QualifiedProtocolDeclare
+import this/sweep.qualifiedAst.QualifiedReturnExp
+import this/sweep.qualifiedAst.QualifiedStatement
+import this/sweep.qualifiedAst.QualifiedStringLiteralExp
+import this/sweep.qualifiedAst.QualifiedThrowExp
+import this/sweep.qualifiedAst.QualifiedEnumDeclare
+import this/sweep.qualifiedAst.QualifiedUnaryOpExp
+
+import this/parse.parseAst.ParseAssignmentStatement
+import this/parse.parseAst.ParseAtomDeclare
+import this/parse.parseAst.ParseBinaryOpExp
+import this/parse.parseAst.ParseBlockExp
+import this/parse.parseAst.ParseBooleanLiteralExp
+import this/parse.parseAst.ParseCallExp
+import this/parse.parseAst.ParseCharLiteralExp
+import this/parse.parseAst.ParseConstantDeclare
+import this/parse.parseAst.ParseConstructExp
+import this/parse.parseAst.ParseConstructTupleExp
+import this/parse.parseAst.ParseDataDeclare
+import this/parse.parseAst.ParseDebuggerStatement
+import this/parse.parseAst.ParseDeclaration
+import this/parse.parseAst.ParseDeconstructDataStatement
+import this/parse.parseAst.ParseDeconstructTupleStatement
+import this/parse.parseAst.ParseExpression
+import this/parse.parseAst.ParseExpressionStatement
+import this/parse.parseAst.ParseFieldAccessExp
+import this/parse.parseAst.ParseFile
+import this/parse.parseAst.ParseFunctionDeclare
+import this/parse.parseAst.ParseFunctionStatement
+import this/parse.parseAst.ParseIdentifierExp
+import this/parse.parseAst.ParseIfExp
+import this/parse.parseAst.ParseImplDeclare
+import this/parse.parseAst.ParseImportDeclare
+import this/parse.parseAst.ParseLambdaExp
+import this/parse.parseAst.ParseMatchExp
+import this/parse.parseAst.ParseMatchPattern
+import this/parse.parseAst.ParseMethodCallExp
+import this/parse.parseAst.ParseModule
+import this/parse.parseAst.ParseNullLiteralExp
+import this/parse.parseAst.ParseNumberLiteralExp
+import this/parse.parseAst.ParseProtocolDeclare
+import this/parse.parseAst.ParseReturnExp
+import this/parse.parseAst.ParseStatement
+import this/parse.parseAst.ParseStringLiteralExp
+import this/parse.parseAst.ParseThrowExp
+import this/parse.parseAst.ParseEnumDeclare
+import this/parse.parseAst.ParseUnaryOpExp
+
+import this/type.typeExpression.NamedTypeExp
+import this/type.typeExpression.GenericTypeExp
+import this/type.typeExpression.FunctionTypeExp
+import this/type.typeExpression.TupleTypeExp
+import this/type.typeExpression.TypeExpression
+import this/type.typeExpression.QualifiedNamedTypeExp
+import this/type.typeExpression.QualifiedGenericTypeExp
+import this/type.typeExpression.QualifiedFunctionTypeExp
+import this/type.typeExpression.QualifiedTupleTypeExp
+import this/type.typeExpression.QualifiedTypeExpression
+
+private data Scope {
+  types: Map[String, QualifiedTypeExpression]
+}
+
+implement Scope {
+  fun new(): Scope = {
+    fun core(name: String): QualifiedNamedTypeExp = {
+      QualifiedNamedTypeExp {
+        name: QualifiedSymbol { org: 'core', module: 'core', path: List.of(name) }
+      }
+    }
+
+    val coreTypes = List.of(
+      'String',
+      'Char',
+      'Boolean',
+      'Int',
+      'Float',
+      'List',
+      'Map',
+      'Set',
+      'File',
+      'Error',
+      'Any',
+      'Nothing',
+      'SendChannel',
+      'ReceiveChannel',
+      'Unit'
+    );
+
+    coreTypes.fold(Scope { types: Map.of() }, { scope, next =>
+      scope.set(next, core(next))
+    })
+  }
+
+  fun bindGenerics(this, generics: List[String]): Scope = {
+    if (generics == null) {
+      return this;
+    }
+
+    generics.fold(this, { scope, gen =>
+      // TODO: 'Any' represents the type bound, which we currently don't have.
+      // someday we'll need to add type bounds, and this is where they'll go
+      scope.set(gen, typeAny)
+    });
+  }
+
+  fun set(this, name: String, symbol: QualifiedTypeExpression): Scope = {
+    return this{ types: this.types.set(name, symbol) };
+  }
+
+  fun get(this, name: String, pos: Position): QualifiedTypeExpression = {
+    val found = this.types.get(name);
+
+    if (found == null) {
+      pos.fail("No such type with name $name found in scope")
+    } else {
+      found
+    }
+  }
+}
+
+fun qualify(mod: ParseModule): QualifiedModule = {
+  val files = mod.files.entries().fold(Map.of(), { sum, next =>
+    val (path, file) = next;
+    sum.set(path, qualifyFile(file))
+  });
+
+  return QualifiedModule { files };
+}
+
+private fun qualifyFile(file: ParseFile): QualifiedFile = {
+  val scope = file.declarations.fold(Scope.new(), { scope, dec =>
+    collectDeclaration(dec, file.path, scope)
+  });
+
+  return QualifiedFile {
+    path: file.path,
+    declarations: file.declarations.map({it => qualifyDeclaration(it, scope) })
+  }
+}
+
+private val typeAny: QualifiedNamedTypeExp = {
+  QualifiedNamedTypeExp {
+    name: QualifiedSymbol {
+      org: 'core',
+      module: 'core',
+      path: List.of('Any')
+    }
+  }
+}
+
+private fun collectDeclaration(dec: ParseDeclaration, path: List[String], scope: Scope): Scope = {
+  fun qualify(name: String): QualifiedNamedTypeExp = {
+    QualifiedNamedTypeExp { name: QualifiedSymbol { org: 'this', module: 'this', path: path.add(name) } }
+  }
+
+  match (dec) {
+    _ when dec is ParseAtomDeclare => {
+      scope.set(dec.name, qualify(dec.name))
+    }
+    _ when dec is ParseDataDeclare => {
+      scope.set(dec.name, qualify(dec.name))
+    }
+    _ when dec is ParseEnumDeclare => {
+      scope.set(dec.name, qualify(dec.name))
+    }
+    _ when dec is ParseImportDeclare => {
+      val { org, module, path: innerPath } = dec
+
+      scope.set(dec.name, QualifiedNamedTypeExp { name: QualifiedSymbol { org, module, path } })
+    }
+    _ when dec is ParseProtocolDeclare => {
+      scope.set(dec.name, qualify(dec.name))
+    }
+    _ => scope
+  }
+}
+
+private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDeclaration = {
+  match (dec) {
+    _ when dec is ParseAtomDeclare => {
+      val { name, access, pos } = dec
+
+      QualifiedAtomDeclare { name, access, pos }
+    }
+    _ when dec is ParseDataDeclare => {
+      val { name, generics, body, access, pos } = dec;
+
+      val childScope = scope.bindGenerics(generics);
+
+      val newBody = body.entries().fold( Map.of(), { sum, next =>
+        val (key, ex) = next;
+        sum.set(key, qualifyTypeExpression(ex, dec.pos, childScope))
+      });
+
+      QualifiedDataDeclare {
+        name,
+        generics,
+        body: newBody,
+        access,
+        pos
+      }
+    }
+    _ when dec is ParseEnumDeclare => {
+      val { name, values, access, pos } = dec
+
+      QualifiedEnumDeclare { name, values: values.map({ name => scope.get(name, pos) }), access, pos }
+    }
+    _ when dec is ParseFunctionDeclare => {
+      val { func, access, pos } = dec
+
+      QualifiedFunctionDeclare { func: qualifyFunctionStatement(func, scope), access, pos }
+    }
+    _ when dec is ParseImportDeclare => {
+      val { org, module, path, name, access, pos } = dec
+
+      QualifiedImportDeclare { org, module, path, name, access, pos }
+    }
+    _ when dec is ParseConstantDeclare => {
+      val { assign, access, pos } = dec
+
+      QualifiedConstantDeclare { assign: qualifyAssignmentStatement(assign, scope), access, pos }
+    }
+    _ when dec is ParseProtocolDeclare => {
+      val { name, generics, funcs, access, pos } = dec;
+
+      val protocolScope = scope.bindGenerics(generics);
+
+      val qualifiedFuncs = funcs.map({ pair =>
+        val (name, func) = pair;
+
+        val { generics, params, result } = func;
+
+        val funcScope = protocolScope.bindGenerics(generics);
+
+        val qualifiedFunc = QualifiedProtocolFunctionDeclare {
+          generics,
+          params: params.map({it => qualifyTypeExpression(it, func.pos, funcScope) }),
+          result: qualifyTypeExpression(result, func.pos, funcScope)
+        };
+
+        (name, qualifiedFunc)
+      })
+
+      QualifiedProtocolDeclare {
+        name,
+        generics,
+        funcs: qualifiedFuncs,
+        access,
+        pos
+      }
+    }
+    _ when dec is ParseImplDeclare => {
+      val { base, proto, funcs, access, pos } = dec;
+      val implScope = scope.set('This', scope.get(base));
+
+      QualifiedImplDeclare {
+        base,
+        proto,
+        funcs: funcs.map({dec =>
+          val { func, access, pos } = dec;
+
+          QualifiedFunctionDeclare { func: qualifyFunctionStatement(func, implScope), access, pos }
+        }),
+        access,
+        pos
+      }
+    }
+  }
+}
+
+// this one is special because type statements and import statements are allowed to introduce new types into scope,
+// nothing else can do that. For those two, short-circuit with the set values, for the rest return the input scope
+private fun qualifyStatement(state: ParseStatement, scope: Scope): (QualifiedStatement, Scope) = {
+  match (state) {
+    _ when state is ParseExpressionStatement => (qualifyExpressionStatement(state, scope), scope)
+    _ when state is ParseAssignmentStatement => (qualifyAssignmentStatement(state, scope), scope)
+    _ when state is ParseFunctionStatement => (qualifyFunctionStatement(state, scope), scope)
+    _ when state is ParseDeconstructDataStatement => (qualifyDeconstructDataStatement(state, scope), scope)
+    _ when state is ParseDeconstructTupleStatement => (qualifyDeconstructTupleStatement(state, scope), scope)
+    _ when state is ParseDebuggerStatement => (qualifyDebuggerStatement(state, scope), scope)
+  };
+}
+
+private fun qualifyExpressionStatement(state: ParseExpressionStatement, scope: Scope): QualifiedExpressionStatement = {
+  return QualifiedExpressionStatement { ex: qualifyExpression(state.ex, scope), pos: state.pos };
+}
+
+private fun qualifyAssignmentStatement(state: ParseAssignmentStatement, scope: Scope): QualifiedAssignmentStatement = {
+  val { name, declaredType, body, pos } = state;
+
+  QualifiedAssignmentStatement {
+    name,
+    declaredType: qualifyTypeExpression(declaredType, state.pos, scope),
+    body: qualifyExpression(body, scope),
+    pos
+  }
+}
+
+private fun qualifyFunctionStatement(state: ParseFunctionStatement, scope: Scope): QualifiedFunctionStatement = {
+  val { name, generics, body, pos } = state;
+
+  val childScope = scope.bindGenerics(generics)
+
+  QualifiedFunctionStatement {
+    name,
+    generics,
+    body: qualifyLambdaExpression(body, childScope),
+    pos
+  }
+}
+
+private fun qualifyDeconstructDataStatement(state: ParseDeconstructDataStatement, scope: Scope): QualifiedDeconstructDataStatement = {
+  val { base, values, pos } = state
+
+  QualifiedDeconstructDataStatement {
+    base: qualifyExpression(base, scope),
+    values, pos
+  }
+}
+
+private fun qualifyDeconstructTupleStatement(state: ParseDeconstructTupleStatement, scope: Scope): QualifiedDeconstructTupleStatement = {
+  val { base, names, pos } = state
+
+  QualifiedDeconstructTupleStatement {
+    base: qualifyExpression(base, scope),
+    names,
+    pos
+  }
+}
+
+private fun qualifyDebuggerStatement(state: ParseDebuggerStatement, scope: Scope): QualifiedDebuggerStatement =
+  QualifiedDebuggerStatement { pos: state.pos }
+
+private fun qualifyExpression(ex: ParseExpression, scope: Scope): QualifiedExpression = {
+  match (ex) {
+    null => null
+    _ when ex is ParseNullLiteralExp => QualifiedNullLiteralExp { pos: ex.pos }
+    _ when ex is ParseBooleanLiteralExp => QualifiedBooleanLiteralExp { value: ex.value, pos: ex.pos }
+    _ when ex is ParseNumberLiteralExp => QualifiedNumberLiteralExp { value: ex.value, pos: ex.pos }
+    _ when ex is ParseStringLiteralExp => QualifiedStringLiteralExp { value: ex.value, pos: ex.pos }
+    _ when ex is ParseCharLiteralExp => QualifiedCharLiteralExp { value: ex.value, pos: ex.pos }
+    _ when ex is ParseIdentifierExp => QualifiedIdentifierExp { name: ex.name, pos: ex.pos }
+    _ when ex is ParseBinaryOpExp => {
+      val { op, left, right, pos } = ex;
+
+        QualifiedBinaryOpExp {
+          op,
+          left: qualifyExpression(left, scope),
+          right: qualifyExpression(right, scope),
+          pos
+        }
+    }
+    _ when ex is ParseUnaryOpExp => {
+      val { op, ex, pos } = ex;
+
+      QualifiedUnaryOpExp {
+        op,
+        ex: qualifyExpression(ex, scope),
+        pos
+      }
+    }
+    _ when ex is ParseBlockExp => {
+      val (_, body) = ex.body.fold( (scope, List.of()), { pair, state =>
+        val (scope, result) = pair;
+
+        val (nextEx, nextScope) = qualifyStatement(state, scope);
+
+        (nextScope, result.add(nextEx))
+      });
+
+      QualifiedBlockExp { body, pos: ex.pos }
+    }
+    _ when ex is ParseFieldAccessExp => {
+      val { base, name, pos } = ex
+
+      QualifiedFieldAccessExp {
+        base: qualifyExpression(base, scope),
+        name,
+        pos
+      }
+    }
+    _ when ex is ParseCallExp => {
+      val { func, arguments, typeArguments, pos } = ex;
+
+      QualifiedCallExp {
+        func: qualifyExpression(func, scope),
+        arguments: arguments.map({ it => qualifyExpression(it, scope) }),
+        typeArguments: typeArguments.map({ it => qualifyTypeExpression(it, ex.pos, scope) }),
+        pos
+      }
+    }
+    _ when ex is ParseMethodCallExp => {
+      val { base, name, arguments, typeArguments, pos } = ex;
+
+      QualifiedMethodCallExp {
+        base: qualifyExpression(base, scope),
+        name,
+        arguments: arguments.map({ it => qualifyExpression(it, scope) }),
+        typeArguments: typeArguments.map({ it => qualifyExpression(it, scope) }),
+        pos
+      }
+    }
+    _ when ex is ParseLambdaExp => qualifyLambdaExpression(ex, scope)
+    _ when ex is ParseIfExp => {
+      QualifiedIfExp {
+        condition: qualifyExpression(ex.condition, scope),
+        thenExp: qualifyExpression(ex.thenExp, scope),
+        elseExp: qualifyExpression(ex.elseExp, scope),
+        pos: ex.pos
+      }
+    }
+    _ when ex is ParseReturnExp => {
+      QualifiedReturnExp {
+        ex: qualifyExpression(ex.ex, scope),
+        pos: ex.pos
+      }
+    }
+    _ when ex is ParseThrowExp => {
+      QualifiedThrowExp {
+        ex: qualifyExpression(ex.ex, scope),
+        pos: ex.pos
+      }
+    }
+    _ when ex is ParseConstructExp => {
+      val { base, values, pos } = ex;
+
+      QualifiedConstructExp {
+        base: qualifyExpression(base, scope),
+        values: values.map({ pair =>
+          val (key, exp) = pair;
+
+          return (key, qualifyExpression(exp, scope))
+        }),
+        pos
+      }
+    }
+    _ when ex is ParseConstructTupleExp => {
+      val { values, pos } = ex;
+
+      QualifiedConstructTupleExp {
+        values: values.map({ it => qualifyExpression(it, scope) }),
+        pos
+      }
+    }
+    _ when ex is ParseMatchExp => {
+      val { base, patterns, pos } = ex;
+
+      QualifiedMatchExp {
+        base: qualifyExpression(base, scope),
+        patterns: patterns.map({ pattern =>
+          val { base, guard, body, pos } = pattern;
+
+          QualifiedMatchPattern {
+            base: qualifyExpression(base, scope),
+            guard: qualifyExpression(guard, scope),
+            body: qualifyExpression(body, scope),
+            pos
+          }
+        }),
+        pos
+      }
+    }
+  }
+}
+
+private fun qualifyLambdaExpression(ex: ParseLambdaExp, scope: Scope): QualifiedLambdaExp = {
+  val { args, body, pos, argTypes, resultType } = ex;
+
+  QualifiedLambdaExp {
+    args,
+    body: qualifyExpression(body, scope),
+    pos,
+    argTypes: argTypes.map({ it => qualifyTypeExpression(it, ex.pos, scope) }),
+    resultType: qualifyTypeExpression(resultType, ex.pos, scope)
+  }
+}
+
+
+// and now for all the type expressions
+private fun qualifyTypeExpression(ex: TypeExpression, pos: Position, scope: Scope): QualifiedTypeExpression = {
+  match (ex) {
+    _ when ex is NamedTypeExp => scope.get(ex.name, pos) // here is where the magic happens!
+    _ when ex is GenericTypeExp => {
+      // TODO: right now type aliases can't take generic params, but in the future they might
+      // and right here is when we'd want to replace those generic params with the ones supplied by this type
+      val resolved = qualifyTypeExpression(ex.base, pos, scope);
+
+      QualifiedGenericTypeExp {
+        base: resolved,
+        params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
+      }
+    }
+    _ when ex is FunctionTypeExp => {
+      QualifiedFunctionTypeExp {
+        params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) }),
+        result: qualifyTypeExpression(ex.result, pos, scope),
+        generics: ex.generics
+      }
+    }
+    _ when ex is TupleTypeExp => {
+      QualifiedTupleTypeExp {
+        params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
+      }
+    }
+  }
+}
+

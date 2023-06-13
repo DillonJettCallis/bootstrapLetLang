@@ -1,36 +1,29 @@
-import this/Ast.CallExp
-import this/Ast.IdentifierExp
-import this/Ast.ListLiteralExp
-import this/Ast.StringLiteralExp
-import this/Ast.CharLiteralExp
+import this/position.Position
 
-import this/Ast.Expression
+import this/parse.parseAst.ParseCallExp
+import this/parse.parseAst.ParseIdentifierExp
+import this/parse.parseAst.ParseStringLiteralExp
+import this/parse.parseAst.ParseCharLiteralExp
+import this/parse.parseAst.ParseBinaryOpExp
+import this/parse.parseAst.ParseExpression
 
-import this/Parser.parseExpressionOnly
+import this/parse.parser.parseExpressionOnly
 
-import this/Lexer.Position
-import this/Lexer.StringCursor
-import this/Lexer.lexFragment
-import this/Lexer.munchWord
+import this/parse.lexer.StringCursor
+import this/parse.lexer.lexFragment
+import this/parse.lexer.munchWord
 
-import this/Type.StringType
-import this/Type.CharType
-import this/Type.AnyType
-import this/Type.UnknownType
-import this/Type.listOfType
-import this/Type.stringTemplateType
+data StringTemplateString { raw: String }
+data StringTemplateChar { char: Char }
+data StringTemplate { strings: List[String], values: List[ParseExpression] }
 
+private enum StringTemplateResult {
+  StringTemplateString,
+  StringTemplateChar,
+  StringTemplate,
+}
 
-data StringTemplateString = { raw: String }
-data StringTemplateChar = { char: Char }
-data StringTemplate = { strings: List[String], values: List[Expression] }
-
-private type StringTemplateResult
-  = StringTemplateString
-  | StringTemplateChar
-  | StringTemplate
-
-private fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String): Expression = {
+fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: String): ParseExpression = {
   val template = match (prefix) {
     "raw" => StringTemplateString { raw }
     "char" => {
@@ -47,21 +40,21 @@ private fun parseStringTemplateWithPrefix(raw: String, pos: Position, prefix: St
   }
 
   return match (template) {
-    _ when template is StringTemplateString => StringLiteralExp{value: template.raw, type: StringType, pos}
-    _ when template is StringTemplateChar => CharLiteralExp{value: template.char, type: CharType, pos}
-    _ when template is StringTemplate => CallExp {
-        func: IdentifierExp{name: "@template", type: stringTemplateType, pos},
-        arguments: List.of(
-          ListLiteralExp{args: template.strings.map({ value => StringLiteralExp{value, pos} }), type: listOfType(StringType), pos},
-          ListLiteralExp{args: template.values, type: listOfType(AnyType), pos}
-        ),
-        type: StringType,
-        pos
-      }
+    _ when template is StringTemplateString => ParseStringLiteralExp{value: template.raw, pos}
+    _ when template is StringTemplateChar => ParseCharLiteralExp{value: template.char, pos}
+    _ when template is StringTemplate => ParseCallExp {
+         func: ParseIdentifierExp{name: "@template", pos},
+         typeArguments: List.of(),
+         arguments: List.of(
+           listOfCall(template.strings.map({ value => ParseStringLiteralExp{value, pos} }), pos),
+           listOfCall(template.values, pos)
+         ),
+         pos
+       }
   }
 }
 
-private fun munchStringBody(cursor: StringCursor, initStrings: List[String], initValues: List[Expression]): StringTemplateResult = {
+private fun munchStringBody(cursor: StringCursor, initStrings: List[String], initValues: List[ParseExpression]): StringTemplateResult = {
   if (cursor.isEmpty()) {
     if (initValues.isEmpty()) {
       return StringTemplateString {raw: initStrings.last() }
@@ -88,7 +81,7 @@ private fun munchStringBody(cursor: StringCursor, initStrings: List[String], ini
     } else {
       val (wordCursor, word) = munchWord(nextCursor, "")
 
-      (wordCursor, IdentifierExp{name: word, type: UnknownType, pos: nextCursor.pos})
+      (wordCursor, ParseIdentifierExp{name: word, pos: nextCursor.pos})
     };
 
     return munchStringBody(finalCursor, initStrings.add(""), initValues.add(ex))
@@ -107,12 +100,19 @@ private fun blockBody(cursor: StringCursor, init: String, inside: List[Char]): (
   val (nextCursor, nextChar) = cursor.next()
 
   match (nextChar) {
-    char'}' when inside.last() == char'{' && inside.size == 1 => return (nextCursor, init)
-    char'}' when inside.last() == char'{' && inside.size > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
+    char'}' when inside.last() == char'{' && inside.size() == 1 => return (nextCursor, init)
+    char'}' when inside.last() == char'{' && inside.size() > 1 => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     char'{' when inside.last() == char'{' => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
     _ when quotes.contains(nextChar) && inside.last() == nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.init())
     _ when quotes.contains(nextChar) && inside.last() != nextChar => return blockBody(nextCursor, init.append(nextChar.toString()), inside.add(nextChar))
     _ => return blockBody(nextCursor, init.append(nextChar.toString()), inside)
   }
+}
+
+fun listOfCall(arguments: List[ParseExpression], pos: Position): ParseCallExp = ParseCallExp {
+  func: ParseBinaryOpExp{ op: '.', left: ParseIdentifierExp{ name: 'List', pos }, right: ParseIdentifierExp{ name: 'of', pos }, pos },
+  arguments,
+  typeArguments: List.of(),
+  pos
 }
 

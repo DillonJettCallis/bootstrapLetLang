@@ -4,7 +4,7 @@ class TestJvm {
 
   @Test
   fun helloTest() {
-    main(arrayOf("src/commonTest/resources"))
+    main(arrayOf("C:/Users/Dillon/Projects/bootstrapLetLang/interpreter/src/commonTest/resources"))
   }
 }
 

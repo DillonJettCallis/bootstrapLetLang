@@ -1,0 +1,131 @@
+import this/sweep.qualifiedAst.QualifiedAtomDeclare
+import this/sweep.qualifiedAst.QualifiedConstantDeclare
+import this/sweep.qualifiedAst.QualifiedDataDeclare
+import this/sweep.qualifiedAst.QualifiedFunctionDeclare
+import this/sweep.qualifiedAst.QualifiedImplDeclare
+import this/sweep.qualifiedAst.QualifiedImportDeclare
+import this/sweep.qualifiedAst.QualifiedModule
+import this/sweep.qualifiedAst.QualifiedProtocolDeclare
+import this/sweep.qualifiedAst.QualifiedEnumDeclare
+
+import this/access.AccessModifier
+import this/access.Public
+import this/access.Protected
+import this/access.Internal
+import this/access.Private
+
+import this/symbols.QualifiedSymbol
+
+import this/type.typeExpression.QualifiedTypeExpression
+import this/type.typeExpression.QualifiedNamedTypeExp
+import this/type.typeExpression.QualifiedGenericTypeExp
+import this/type.typeExpression.QualifiedFunctionTypeExp
+import this/type.typeExpression.QualifiedTupleTypeExp
+import this/type.typeExpression.defineThis
+
+import this/type.type.ConcreteType
+import this/type.type.AtomType
+import this/type.type.DataType
+import this/type.type.ProtocolType
+import this/type.type.EnumType
+
+data Dictionary {
+  // holds all types
+  types: Map[QualifiedSymbol, ConcreteType],
+  // holds all the values
+  values: Map[QualifiedSymbol, QualifiedTypeExpression]
+}
+
+
+implement Dictionary {
+  fun new(): Dictionary = Dictionary {
+    types: Map.of(),
+    values: Map.of()
+  }
+
+  private fun setType(this, name: QualifiedSymbol, type: ConcreteType): Dictionary = {
+    this { types: this.types.set(name, type) }
+  }
+
+  private fun setValue(this, name: QualifiedSymbol, type: QualifiedTypeExpression): Dictionary = {
+    this { values: this.values.set(name, type) }
+  }
+
+  fun collectDictionary(this, mod: QualifiedModule): Dictionary = {
+    mod.files.values().fold(this, { sum, file =>
+      fun symbol(name: String): QualifiedSymbol = QualifiedSymbol { org: 'this', module: 'this', path: file.path.add(name) }
+
+      file.declarations.fold(sum, { sum, dec =>
+         match (dec) {
+          _ when dec is QualifiedAtomDeclare => {
+            val name = symbol(dec.name);
+
+            // atoms contain a type and value wrapped up into one concept
+            sum.setType(name, AtomType { name })
+              .setValue(name, QualifiedNamedTypeExp { name })
+          }
+          _ when dec is QualifiedDataDeclare => {
+            val { generics, body: fields } = dec;
+            val name = symbol(dec.name);
+            val meta = name.child('[meta]');
+
+            // a data type creates a meta atom, a value for that meta atom, plus the actual data type with it's fields
+            sum.setType(meta, AtomType { name: meta })
+              .setValue(name, QualifiedNamedTypeExp { name: meta } )
+              .setType(name, DataType { name, generics, fields })
+          }
+          _ when dec is QualifiedEnumDeclare => {
+            val name = symbol(dec.name)
+            val meta = name.child('[meta]');
+
+            sum.setType(meta, AtomType { name: meta })
+              .setValue(name, QualifiedNamedTypeExp { name: meta })
+              .setType(name, EnumType { name, values: dec.values })
+          }
+          _ when dec is QualifiedFunctionDeclare => {
+            val { name: rawName, generics, body } = dec.func;
+            val { argTypes: params, resultType: result } = body;
+            val name = symbol(rawName);
+
+            sum.setValue(name, QualifiedFunctionTypeExp{ params, result, generics })
+          }
+          _ when dec is QualifiedConstantDeclare => {
+            val { name: rawName, declaredType: value } = dec.assign;
+            val name = symbol(rawName);
+
+            sum.setValue(name, value)
+          }
+          _ when dec is QualifiedImportDeclare => sum // hold off on imports for right now
+          _ when dec is QualifiedProtocolDeclare => dec.pos.fail("Protocol declarations are not supported yet")
+          _ when dec is QualifiedImplDeclare => {
+            if (dec.proto == null) {
+              val baseName = symbol(dec.base);
+              val metaName = baseName.child('[meta]');
+
+              dec.funcs.fold(sum, { sum, dec =>
+                val { name: rawName, generics, body } = dec.func;
+                val { args, argTypes: rawParams, resultType: result } = body;
+
+                val params = rawParams.map({ param => defineThis(param, baseName) })
+
+                // TODO: order of operations of a bang operator is not good
+                val name = if ({ !args.isEmpty() } && args.head() == "this") {
+                  // and instance method
+                  baseName.child(rawName)
+                } else {
+                  // a static method
+                  metaName.child(rawName)
+                };
+
+                sum.setValue(name, QualifiedFunctionTypeExp { params, result, generics })
+              })
+            } else {
+              dec.pos.fail("Protocol implementations are not supported yet")
+            }
+          }
+        }
+      })
+    })
+  }
+
+}

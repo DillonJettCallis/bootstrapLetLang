@@ -1,0 +1,80 @@
+import this/sweep.qualifiedAst.QualifiedModule
+import this/sweep.qualifiedAst.QualifiedImportDeclare
+
+data ImportGraph {
+  sender: SendChannel[ImportGraphRequest]
+}
+
+implement ImportGraph {
+
+  fun new(): ImportGraph = {
+    val (s, r) = makeChannel[ImportGraphRequest]();
+
+    // this is the actor
+    spawn({ => importGraphActor(r, Map.of()) });
+
+    return ImportGraph { sender: s };
+  }
+
+  fun add(this, base: List[String], target: List[String]): Unit = {
+    this.sender.send(ImportGraphRequestAddImport { base, target });
+    return ();
+  }
+
+  fun importsOf(this, base: List[String]): Set[List[String]] = {
+    val (sender, receiver) = makeChannel[Set[List[String]]]();
+
+    this.sender.send(ImportGraphRequestImports { base, response: sender });
+
+    return receiver.receive();
+  }
+
+}
+
+enum ImportGraphRequest {
+  ImportGraphRequestAddImport,
+  ImportGraphRequestImports
+}
+
+data ImportGraphRequestAddImport { base: List[String], target: List[String] }
+data ImportGraphRequestImports { base: List[String], response: SendChannel[Set[List[String]]] }
+
+private fun importGraphActor(input: ReceiveChannel[ImportGraphRequest], data: Map[List[String], Set[List[String]]]): Unit = {
+  val next = input.receive();
+
+  match (next) {
+    _ when next is ImportGraphRequestAddImport => {
+      val prev = data.get(next.base);
+
+      val updated = if (prev == null) {
+        Set.of(next.target)
+      } else {
+        prev.add(next.target)
+      }
+
+      return importGraphActor(input, data.set(next.base, updated));
+    }
+    _ when next is ImportGraphRequestImports => {
+      next.response.send(data.get(next.base));
+      return importGraphActor(input, data);
+    }
+    _ => throw Error.new("Invalid message '${next}' received!")
+  }
+}
+
+fun buildImportGraph(module: QualifiedModule): ImportGraph = {
+  val graph = ImportGraph.new();
+
+  module.files.values().forEach({ file =>
+    val path = file.path;
+
+    file.declarations.forEach({ dec =>
+      if (dec is QualifiedImportDeclare) {
+        graph.add(path, dec.path);
+      }
+    })
+  });
+
+  return graph;
+}
+

@@ -1,0 +1,11 @@
+
+// Private is within the same file
+// Internal is within the same module
+// Protected is within the same organization
+// Public is anything anywhere
+atom Public
+atom Protected
+atom Internal
+atom Private
+
+enum AccessModifier { Public, Protected, Internal, Private }

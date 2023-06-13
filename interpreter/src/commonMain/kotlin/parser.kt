@@ -53,7 +53,7 @@ private fun parseDeclaration(cursor: TokenCursor, access: AccessModifier): Pair<
       "atom" -> parseAtomDeclare(nextCursor, access, pos)
       "fun" -> parseFunctionDeclare(nextCursor, access, pos)
       "data" -> parseDataDeclare(nextCursor, access, pos)
-      "type" -> parseTypeDeclare(nextCursor, access, pos)
+      "enum" -> parseEnumDeclare(nextCursor, access, pos)
       "import" -> parseImportDeclare(nextCursor, pos)
       "protocol" -> TODO()
       "implement" -> parseImplDeclare(nextCursor, access, pos)
@@ -86,16 +86,10 @@ private fun parseAtomDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
   }
 }
 
-private fun parseTypeDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, TypeDeclare> {
-  val (finalCursor, statement) = parseTypeStatement(cursor, pos)
-
-  return finalCursor to TypeDeclare(statement, access, pos)
-}
-
-private fun parseTypeStatement(cursor: TokenCursor, pos: Position): Pair<TokenCursor, TypeStatement> {
+private fun parseEnumDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, EnumDeclare> {
   val (nameCursor, nameToken) = cursor.next()
 
-  if (nameToken !is TokenWord) {
+  if ( nameToken !is TokenWord ) {
     nameToken.pos.fail("Expected name of type")
   }
 
@@ -103,22 +97,48 @@ private fun parseTypeStatement(cursor: TokenCursor, pos: Position): Pair<TokenCu
 
   val (equalsCursor, equals) = nameCursor.next()
 
-  if (equals !is TokenSymbol || equals.value != "=") {
+  if (equals !is TokenSymbol || equals.value != "{") {
     equals.pos.fail("Expected type assignment")
   }
 
-  val (typeCursor, type) = parseType(equalsCursor)
+  fun parseEnumArguments(cursor: TokenCursor, params: List<String>): Pair<TokenCursor, List<String>> {
+    val (nextCursor, next) = cursor.next();
 
-  return typeCursor to TypeStatement(name, type, pos)
+    if (next !is TokenWord) {
+      next.pos.fail("Expected enum name")
+    }
+
+    val withNext = params + next.value
+
+    val (maybeCommaCursor, maybeComma) = nextCursor.next();
+
+    if (maybeComma !is TokenSymbol) {
+      maybeComma.pos.fail("Expected either a comma or the close of an enum")
+    }
+
+    return when (maybeComma.value) {
+      "," -> {
+      // ok it's a comma, there MIGHT be another value after this one
+      val (maybeCloseCursor, maybeClose) = maybeCommaCursor.next();
+
+      if (maybeClose is TokenSymbol && maybeClose.value == "}") {
+        // it's closed
+        (maybeCloseCursor to withNext)
+      } else {
+        parseEnumArguments(maybeCommaCursor, withNext)
+      }
+    }
+      "}" -> (maybeCommaCursor to withNext)
+      else -> maybeComma.pos.fail("Expected either a comma or the close of an enum")
+    }
+  }
+
+  val (typeCursor, values) = parseEnumArguments(equalsCursor, listOf())
+
+  return (typeCursor to EnumDeclare(name, values, access, pos))
 }
 
 private fun parseImportDeclare(cursor: TokenCursor, pos: Position): Pair<TokenCursor, ImportDeclare> {
-  val (finalCursor, statement) = parseImportStatement(cursor, pos)
-
-  return finalCursor to ImportDeclare(statement, pos)
-}
-
-private fun parseImportStatement(cursor: TokenCursor, pos: Position): Pair<TokenCursor, ImportStatement> {
   val (orgCursor, orgToken) = cursor.next()
 
   if (orgToken !is TokenWord) {
@@ -172,7 +192,7 @@ private fun parseImportStatement(cursor: TokenCursor, pos: Position): Pair<Token
     }
   }
 
-  return finalCursor to ImportStatement(orgName, moduleName, path, pos)
+  return finalCursor to ImportDeclare(orgName, moduleName, path, pos)
 }
 
 private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: Position): Pair<TokenCursor, DataDeclare> {
@@ -184,16 +204,10 @@ private fun parseDataDeclare(cursor: TokenCursor, access: AccessModifier, pos: P
 
   val name = nameToken.value
 
-  val (equalsCursor, equals) = nameCursor.next()
-
-  if (equals !is TokenSymbol || equals.value != "=") {
-    equals.pos.fail("Expected data declaration assignment")
-  }
-
-  val (openCursor, open) = equalsCursor.next()
+  val (openCursor, open) = nameCursor.next()
 
   if (open !is TokenSymbol || open.value != "{") {
-    equals.pos.fail("Expected data declaration open bracket")
+    nameToken.pos.fail("Expected data declaration open bracket")
   }
 
   val (finalCursor, fields) = parseDataField(openCursor)
@@ -457,7 +471,7 @@ private tailrec fun parseDestructureDataPatterns(cursor: TokenCursor, init: List
   val maybeColon = firstCursor.curr()
 
   val (baseCursor, baseName) = if (maybeColon is TokenSymbol && maybeColon.value == ":") {
-    val (baseCursor, baseToken) = firstCursor.next()
+    val (baseCursor, baseToken) = firstCursor.skip().next()
 
     if (baseToken !is TokenWord) {
       baseToken.pos.fail("Expected identifier in data destructure assignment")
@@ -468,7 +482,7 @@ private tailrec fun parseDestructureDataPatterns(cursor: TokenCursor, init: List
     firstCursor to name
   }
 
-  val result = init + (baseName to name)
+  val result = init + (name to baseName)
 
   val (endCursor, maybeEnd) = baseCursor.next()
 
@@ -762,10 +776,30 @@ private fun parseAccessExp(cursor: TokenCursor): Pair<TokenCursor, Expression> {
 private fun parseCall(cursor: TokenCursor): Pair<TokenCursor, Expression> {
   val (callCursor, base) = parseConstruct(cursor)
 
-  val maybeOpen = callCursor.curr()
+  val maybeOpenBracket = callCursor.curr()
+
+  val (genCursor, genArguments) = if (maybeOpenBracket is TokenSymbol && maybeOpenBracket.value == "[") {
+    val (closeCursor, args) = parseTypeList(callCursor.skip())
+
+    if (args.isEmpty()) {
+      maybeOpenBracket.pos.fail("Expected type arguments")
+    }
+
+    val (finalCursor, closeBracket) = closeCursor.next()
+
+    if (closeBracket is TokenSymbol && closeBracket.value == "]") {
+      finalCursor to args
+    } else {
+      closeBracket.pos.fail("Expected end of type arguments")
+    }
+  } else {
+    callCursor to emptyList()
+  }
+
+  val maybeOpen = genCursor.curr()
 
   return if (maybeOpen is TokenSymbol && maybeOpen.value == "(") {
-    val openCursor = callCursor.skip()
+    val openCursor = genCursor.skip()
     val maybeClose = openCursor.curr()
 
     val (closeCursor, args) = if (maybeClose is TokenSymbol && maybeClose.value == ")") {
@@ -774,7 +808,7 @@ private fun parseCall(cursor: TokenCursor): Pair<TokenCursor, Expression> {
       parseCallArguments(openCursor)
     }
 
-    closeCursor to CallExp(base, args, UnknownType, base.pos)
+    closeCursor to CallExp(base, args, genArguments, UnknownType, base.pos)
   } else {
     callCursor to base
   }
@@ -1007,8 +1041,6 @@ private tailrec fun parseBlockStatement(cursor: TokenCursor, init: List<Statemen
       "debugger" -> cursor.skip() to DebuggerStatement(start.pos)
       "val" -> parseAssignmentStatement(cursor.skip(), start.pos)
       "fun" -> parseFunctionStatement(cursor.skip(), start.pos)
-      "type" -> parseTypeStatement(cursor.skip(), start.pos)
-      "import" -> parseImportStatement(cursor.skip(), start.pos)
       "return" -> {
         val (returnCursor, returnEx) = parseExpression(cursor.skip())
         returnCursor to ExpressionStatement(ReturnExp(returnEx, start.pos), start.pos)

@@ -1,0 +1,7 @@
+
+data Position { line: Int, col: Int, src: String }
+
+implement Position {
+  fun increment(this, next: Char): Position = if (next == char'\n') this{line: this.line + 1, col: 0} else this{col: this.col + 1}
+  fun fail(this, message: String): Nothing = throw Error.new("$message at ${this.line}:${this.col} in ${this.src}")
+}

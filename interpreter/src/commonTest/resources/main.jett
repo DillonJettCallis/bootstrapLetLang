@@ -1,0 +1,50 @@
+import this/access.AccessModifier
+import this/parse.lexer.lex
+import this/parse.parseAst.ParseFile
+import this/parse.parseAst.ParseModule
+import this/parse.parser.parse
+import this/sweep.declare.collectSymbols
+import this/symbols.QualifiedSymbol
+import this/sweep.imports.checkImports
+import this/sweep.qualify.qualify
+import this/sweep.dictionary.Dictionary
+import this/sweep.importGraph.buildImportGraph
+
+fun main(args: List[String]): Dictionary = {
+  val srcDir = File.from(args.get(0));
+  val files = srcDir.walkFiles();
+  val srcFiles = files.filter({ file => file.extension() == 'jett' });
+
+  val files = srcFiles.fold(Map.of(), { sum, next =>
+    val raw = next.readText()
+    val fullPath = next.path()
+    val modulePath = next.relativePath(srcDir)
+    val lexed = lex(fullPath, raw)
+    val parsed = parse(modulePath, lexed)
+
+    sum.set(modulePath, parsed)
+  });
+
+  // bundle the files into a single record
+  val module = ParseModule { files }
+
+  // collect all declarations into one blob
+  val declarations = collectSymbols(module);
+
+  // checks if all imports are pointing to something valid that is accessible
+  checkImports(module, declarations);
+
+  // fully qualify all type expressions in the codebase
+  val qualified = qualify(module);
+
+  // map of all imports (hopefully)
+  val importGraph = buildImportGraph(qualified);
+
+  val sampleQuery = importGraph.importsOf(List.of('type', 'typeExpression'));
+  debugger;
+
+  val dictionary = Dictionary.new().collectDictionary(qualified);
+
+  debugger; // just before completion
+  return dictionary;
+}
