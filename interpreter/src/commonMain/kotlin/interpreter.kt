@@ -60,7 +60,7 @@ data class JNativeFunction(val func: (List<JValue>) -> JValue): JFunction {
   operator fun invoke(args: List<JValue>): JValue = func(args)
 }
 data class JBytecodeFunction(val func: BytecodeFunction, val scope: Scope): JFunction
-sealed interface Channel: JValue
+sealed interface Channel
 
 data class SendChannel(val impl: ChannelImpl): Channel
 data class ReceiveChannel(val impl: ChannelImpl): Channel
@@ -159,6 +159,8 @@ fun Any?.wrap(): JValue {
       is JAtom -> return this
       is JNull -> return this
       is JObject -> return this
+      is SendChannel -> jSendChannel
+      is ReceiveChannel -> jReceiveChannel
       is String -> jString
       is Char -> jChar
       is Exception -> jError
@@ -173,7 +175,41 @@ fun Any?.wrap(): JValue {
   }
 }
 
-private val jError = JClass("Error", emptySet(), emptyMap(), mapOf("new" to JNativeFunction { Exception( it[1].unwrap<String>()).wrap() }))
+private val jSendChannel = JClass(
+  name = "SendChannel",
+  fields = emptySet(),
+  instanceMethods = mapOf(
+    "send" to assemble("this", "item") {
+      loadLocal("this")
+      loadLocal("item")
+      send()
+      loadLiteral(JNull)
+      `return`()
+    }
+  ),
+  staticMethods = emptyMap()
+)
+
+private val jReceiveChannel = JClass(
+  name = "ReceiveChannel",
+  fields = emptySet(),
+  instanceMethods = mapOf(
+    "receive" to assemble("this") {
+      loadLocal("this")
+      receive()
+      `return`()
+    }
+  ),
+  staticMethods = emptyMap()
+)
+
+private val jError = JClass(
+  "Error",
+  emptySet(),
+  emptyMap(),
+  mapOf("new" to JNativeFunction {
+    Exception( it[1].unwrap<String>()).wrap()
+  }))
 
 private val jString = JClass("String", emptySet(), mapOf(
     "size" to JNativeFunction {
@@ -621,6 +657,19 @@ val jConstruct = JNativeFunction { args ->
   }
 }
 
+val makeChannel = JNativeFunction {
+  val impl = ChannelImpl()
+
+  listOf(SendChannel(impl).wrap(), ReceiveChannel(impl).wrap()).wrap()
+}
+
+val spawn = assemble("func") {
+  loadLocal("func")
+  spawn()
+  loadLiteral(JNull)
+  `return`()
+}
+
 fun initCoreScope(): Scope {
   return Scope(hashMapOf(
     "_" to Wildcard,
@@ -629,7 +678,12 @@ fun initCoreScope(): Scope {
     "Set" to jSet,
     "Map" to jMap,
     "File" to jFile,
+    "SendChannel" to jSendChannel,
+    "ReceiveChannel" to jReceiveChannel,
+    "Unit" to JAtom("Unit"),
     "println" to jPrintln,
+    "makeChannel" to makeChannel,
+    "spawn" to spawn,
     "@template" to templateFun,
     "@construct" to jConstruct,
   ), null)

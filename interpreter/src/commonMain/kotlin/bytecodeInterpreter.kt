@@ -289,9 +289,7 @@ class Runtime {
           }
         }
         Spawn -> {
-          val func = frame.stack.removeLast().unwrap<JFunction>()
-
-          when (func) {
+          when (val func = frame.stack.removeLast() as JFunction) {
             is JNativeFunction -> {
               // just call it
               func(emptyList())

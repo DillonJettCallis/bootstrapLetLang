@@ -8,6 +8,7 @@ import this/symbols.QualifiedSymbol
 import this/sweep.imports.checkImports
 import this/sweep.qualify.qualify
 import this/sweep.dictionary.Dictionary
+import this/sweep.importGraph.buildImportGraph
 
 fun main(args: List[String]): Dictionary = {
   val srcDir = File.from(args.get(0));
@@ -36,7 +37,14 @@ fun main(args: List[String]): Dictionary = {
   // fully qualify all type expressions in the codebase
   val qualified = qualify(module);
 
+  // map of all imports (hopefully)
+  val importGraph = buildImportGraph(qualified);
+
+  val sampleQuery = importGraph.importsOf(List.of('type', 'typeExpression'));
+  debugger;
+
   val dictionary = Dictionary.new().collectDictionary(qualified);
 
+  debugger; // just before completion
   return dictionary;
 }

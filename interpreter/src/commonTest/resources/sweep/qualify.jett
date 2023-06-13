@@ -117,7 +117,10 @@ implement Scope {
       'File',
       'Error',
       'Any',
-      'Nothing'
+      'Nothing',
+      'SendChannel',
+      'ReceiveChannel',
+      'Unit'
     );
 
     coreTypes.fold(Scope { types: Map.of() }, { scope, next =>
