@@ -34,7 +34,7 @@ type TypeExpression
 // matching versions of the above, but with fully qualified names
 data QualifiedNamedTypeExp { name: QualifiedSymbol }
 data QualifiedGenericTypeExp { base: QualifiedTypeExpression, params: List[QualifiedTypeExpression] }
-data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression, generics: List[String] }
+data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression, generics: List[String], vararg: Boolean }
 data QualifiedTupleTypeExp { params: List[QualifiedTypeExpression] }
 data QualifiedUnionTypeExp { params: Set[QualifiedTypeExpression] }
 data QualifiedIntersectionTypeExp { params: Set[QualifiedTypeExpression] }
@@ -57,7 +57,7 @@ fun walkTypeExpressionTree(ex: QualifiedTypeExpression, action: { QualifiedTypeE
     }
     _ when ex is QualifiedFunctionTypeExp => ex {
       params: ex.params.map(action),
-      result: action(result)
+      result: action(result),
     }
     _ when ex is QualifiedTupleTypeExp => QualifiedTupleTypeExp { params: ex.params.map(action) }
     _ when ex is QualifiedUnionTypeExp => QualifiedUnionTypeExp { params: ex.params.map(action) }
@@ -77,3 +77,42 @@ fun defineThis(ex: QualifiedTypeExpression, thisDef: QualifiedSymbol): Qualified
     }
   })
 }
+
+private fun makeQualifiedUnionType(left: QualifiedTypeExpression, right: QualifiedTypeExpression): QualifiedTypeExpression = {
+  if (left == right) {
+    return left
+  }
+
+  UnionTypeExp { params: unwrapUnionType(left).concat(unwrapUnionType(right)) }
+}
+
+private fun unwrapUnionType(type: QualifiedTypeExpression): Set[QualifiedTypeExpression] = if (type is QualifiedUnionTypeExp) type.params else Set.of(type)
+
+// something which is either left or right. Might be the same, might return a union
+fun superType(left: QualifiedTypeExpression, right: QualifiedTypeExpression): QualifiedTypeExpression = {
+  if (left == right) {
+    return left;
+  } else {
+    return unwrapUnionType(left, right);
+  }
+}
+
+fun applyIs(base: QualifiedTypeExpression, target: QualifiedTypeExpression): QualifiedTypeExpression = {
+  // TODO: in the case of protocols, this might return an intersection instead of replacement
+  return target;
+}
+
+fun applyIsNot(base: QualifiedTypeExpression, target: QualifiedTypeExpression): QualifiedTypeExpression = {
+  // TODO: all we're doing here is removing from a union, there are surely other things we could do
+  if (base is QualifiedUnionTypeExp) {
+    val removed = base.params.remove(target);
+
+    if (removed.size == 1) {
+      removed.toList().get(0)
+    } else {
+      QualifiedUnionTypeExp { params: removed }
+    }
+  }
+}
+
+

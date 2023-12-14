@@ -69,7 +69,7 @@ data QualifiedMatchPattern { base: QualifiedExpression, guard: QualifiedExpressi
 
 data QualifiedExpressionStatement { ex: QualifiedExpression, pos: Position }
 data QualifiedAssignmentStatement { name: String, declaredType: QualifiedTypeExpression, body: QualifiedExpression, pos: Position }
-data QualifiedFunctionStatement { name: String, generics: List[String], body: QualifiedLambdaExp, pos: Position }
+data QualifiedFunctionStatement { name: String, generics: List[String], body: QualifiedLambdaExp, vararg: Boolean, pos: Position }
 data QualifiedTypeStatement { name: String, value: QualifiedTypeExpression, pos: Position }
 data QualifiedImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
 data QualifiedDeconstructDataStatement { base: QualifiedExpression, values: List[(String, String)], pos: Position }

@@ -417,7 +417,7 @@ private fun parseFunctionStatement(cursor: TokenCursor, pos: Position): (TokenCu
 
     val lambdaExp = ParseLambdaExp{args, body, argTypes, resultType, pos}
 
-    return (bodyCursor, ParseFunctionStatement{name, generics: typeParams, body: lambdaExp, pos})
+    return (bodyCursor, ParseFunctionStatement{name, generics: typeParams, body: lambdaExp, vararg: false, pos})
   } else {
     nameToken.pos.fail("Expected function name")
   }

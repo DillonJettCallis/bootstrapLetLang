@@ -563,7 +563,8 @@ private fun qualifyTypeExpression(ex: TypeExpression, pos: Position, scope: Scop
       QualifiedFunctionTypeExp {
         params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) }),
         result: qualifyTypeExpression(ex.resultType, pos, scope),
-        generics: ex.generics
+        generics: ex.generics,
+        vararg: ex.vararg
       }
     }
     _ when ex is TupleTypeExp => {

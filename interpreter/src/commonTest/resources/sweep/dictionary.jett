@@ -23,6 +23,7 @@ import this/type.typeExpression.QualifiedFunctionTypeExp
 import this/type.typeExpression.QualifiedTupleTypeExp
 import this/type.typeExpression.QualifiedUnionTypeExp
 import this/type.typeExpression.QualifiedIntersectionTypeExp
+import this/type.typeExpression.walkTypeExpressionTree
 import this/type.typeExpression.defineThis
 
 import this/type.type.ConcreteType
@@ -30,6 +31,12 @@ import this/type.type.AtomType
 import this/type.type.DataType
 import this/type.type.ProtocolType
 import this/type.type.AliasType
+
+private val nothingValue = QualifiedSymbol {
+  org: 'core',
+  module: 'core',
+  path: List.of('Nothing')
+};
 
 data Dictionary {
   // holds all types
@@ -45,12 +52,152 @@ implement Dictionary {
     values: Map.of()
   }
 
-  private fun setType(this, name: QualifiedSymbol, type: ConcreteType): Dictionary = {
+  fun setType(this, name: QualifiedSymbol, type: ConcreteType): Dictionary = {
     this { types: this.types.set(name, type) }
   }
 
-  private fun setValue(this, name: QualifiedSymbol, type: QualifiedTypeExpression): Dictionary = {
+  fun setValue(this, name: QualifiedSymbol, type: QualifiedTypeExpression): Dictionary = {
     this { values: this.values.set(name, type) }
+  }
+
+  private fun resolve(this, base: QualifiedTypeExpression): QualifiedTypeExpression = {
+    return walkTypeExpressionTree(base, { ex =>
+      if (ex is QualifiedNamedTypeExp) {
+        val concrete = this.types.get(ex.name);
+
+        if (concrete is AliasType) {
+          return this.resolve(concrete.value)
+        }
+      }
+
+      return ex;
+    });
+  }
+
+  // can a value of type base be assigned to a slot of type target?
+  fun isAssignable(this, base: QualifiedTypeExpression, target: QualifiedTypeExpression, pos: Position): Boolean = {
+    if (target == null) {
+      // if there is no expected type, then it's always accepted
+      return true;
+    }
+
+    // resolve in case one is an alias pointing at the other
+    val resolvedBase = this.resolve(base);
+    val resolvedTarget = this.resolve(target);
+
+    // if they are identical, obviously that works
+    if (resolvedBase == resolvedTarget) {
+      return true;
+    }
+
+    // Nothing is the bottom type and is always assignable to anything
+    if (resolvedBase == nothingValue) {
+      return true;
+    }
+
+    // TODO: protocol support should be handled here
+
+    // check if target is a simple union that contains the target
+    if (resolvedTarget is QualifiedUnionTypeExp && resolvedTarget.params.contains(base)) {
+      return true;
+    }
+
+    // TODO: intersection checks at some point
+
+    pos.fail("Value of type $resolvedBase cannot be assigned to type of $resolvedTarget")
+  }
+
+  // if base has a field of name, returns the type of the field, otherwise fail
+  fun fieldOf(this, base: QualifiedTypeExpression, name: String, pos: Position): QualifiedTypeExpression = {
+    val resolved = this.resolve(base);
+
+    match (resolved) {
+      _ when resolved is QualifiedNamedTypeExp => {
+        // lookup concrete type
+        val concrete = this.types.get(resolved.name);
+
+        match (concrete) {
+          _ when concrete == null => pos.fail("Unknown type $resolved")
+          _ when concrete is AtomType => pos.fail("No such property $name on type $resolved")
+          _ when concrete is ProtocolType => pos.fail("No such property $name on type $resolved") // currently no fields on protocols
+          _ when concrete is AliasType => pos.fail("Unknown alias type $resolved")
+          _ when concrete is DataType => {
+            val field = concrete.fields.get(name);
+
+            if (field == null) {
+              pos.fail("No such property $name on type $resolved")
+            }
+
+            // field exists, return it
+            return field;
+          }
+        }
+      }
+      _ when resolved is QualifiedGenericTypeExp => {
+        // lookup concrete type of base, then apply generics to determine exact values
+
+        val base = resolved.base;
+
+        if (base isNot QualifiedNamedTypeExp) {
+          // TODO: we need something better here, to allow aliases that use and provide generics
+          pos.fail("Complex generics not yet supported, only direct use is allowed")
+        }
+
+        val concrete = this.types.get(base.name);
+
+        match (concrete) {
+          _ when concrete == null => pos.fail("Unknown type $resolved")
+          _ when concrete is AtomType => pos.fail("No such property $name on type $resolved")
+          _ when concrete is ProtocolType => pos.fail("No such property $name on type $resolved") // currently no fields on protocols
+          _ when concrete is AliasType => pos.fail("Unknown alias type $resolved")
+          _ when concrete is DataType => {
+            val field = concrete.fields.get(name);
+
+            if (field == null) {
+              pos.fail("No such property $name on type $resolved")
+            }
+
+            // field exists, now to check generics
+
+            if (resolved.params.size != concrete.generics.size) {
+              pos.fail("Invalid number of generic parameters for type $resolved. Expected ${concrete.generics.size} but only found ${resolved.params.size}")
+            }
+
+            val filledGenerics = resolved.params.zip(concrete.generics).fold(this, { dict, pair =>
+              val (typeExp, name) = pair;
+
+              dict.setType(base.child(name), AliasType { name, value: typeExp})
+            });
+
+            // ask the filled dictionary for the field type, given that is has defined the generic parameters
+            return filledGenerics.resolve(field);
+          }
+        }
+      }
+      _ when resolved is QualifiedFunctionTypeExp => {
+        // fail as functions never have fields
+        pos.fail("Attempt to access field $name from function type.")
+      }
+      _ when resolved is QualifiedTupleTypeExp => {
+        // ummmm
+        pos.fail("Attempt to access field $name from tupe type.")
+      }
+      _ when resolved is QualifiedUnionTypeExp => {
+        // check all sub variants
+
+        // implicitly throws an error if any variant does NOT have the right field, automatically unions the results
+        // TODO: If something goes wrong here, throw a better error message
+        QualifiedUnionTypeExp {
+          params: resolved.params.map({ param => this.fieldOf(param) })
+        }
+      }
+      _ when resolved is QualifiedIntersectionTypeExp => {
+        // check any sub variants
+
+        // TODO: Impelement this, it's really not that hard, I just can't have the auto-fail case like now
+        pos.fail("Intersection types not supported yet")
+      }
+    }
   }
 
   fun collectDictionary(this, mod: QualifiedModule): Dictionary = {
@@ -83,11 +230,11 @@ implement Dictionary {
             sum.setType(name, AliasType { name, value: dec.type.value })
           }
           _ when dec is QualifiedFunctionDeclare => {
-            val { name: rawName, generics, body } = dec.func;
+            val { name: rawName, generics, body, vararg } = dec.func;
             val { argTypes: params, resultType: result } = body;
             val name = symbol(rawName);
 
-            sum.setValue(name, QualifiedFunctionTypeExp{ params, result, generics })
+            sum.setValue(name, QualifiedFunctionTypeExp{ params, result, generics, vararg })
           }
           _ when dec is QualifiedConstantDeclare => {
             val { name: rawName, declaredType: value } = dec.assign;
@@ -103,7 +250,7 @@ implement Dictionary {
               val metaName = baseName.child('[meta]');
 
               dec.funcs.fold(sum, { sum, dec =>
-                val { name: rawName, generics, body } = dec.func;
+                val { name: rawName, generics, body, vararg } = dec.func;
                 val { args, argTypes: rawParams, resultType: result } = body;
 
                 val params = rawParams.map({ param => defineThis(param, baseName) })
@@ -117,7 +264,7 @@ implement Dictionary {
                   metaName.child(rawName)
                 };
 
-                sum.setValue(name, QualifiedFunctionTypeExp { params, result, generics })
+                sum.setValue(name, QualifiedFunctionTypeExp { params, result, generics, vararg })
               })
             } else {
               dec.pos.fail("Protocol implementations are not supported yet")

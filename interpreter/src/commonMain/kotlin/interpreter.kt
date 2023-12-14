@@ -520,6 +520,13 @@ private val jList = JClass(
 
       self.zip(other).wrap()
     },
+    "zipLeft" to JFunction {
+      val (rawSelf, rawOther) = it
+      val self = rawSelf.unwrap<List<JValue>>()
+      val other = rawOther.unwrap<List<JValue>>()
+
+      self.zip((other.asSequence() + generateSequence { JNull }).take(self.size).asIterable()).wrap()
+    },
     "slice" to JFunction {
       val (rawList, rawBegin, rawEnd) = it;
       val list = rawList.unwrap<List<JValue>>()
@@ -631,6 +638,16 @@ private val jSet = JClass(
       val (rawSet, value) = it
       val set = rawSet.unwrap<Set<JValue>>()
       (set + value).wrap()
+    },
+    "remove" to JFunction {
+      val (rawSet, value) = it
+      val set = rawSet.unwrap<Set<JValue>>()
+      (set - value).wrap()
+    },
+    "toList" to JFunction {
+      val (rawSet) = it
+      val set = rawSet.unwrap<Set<JValue>>()
+      set.toList().wrap()
     },
     "map" to JFunction {
       val (rawSet, rawFunc) = it

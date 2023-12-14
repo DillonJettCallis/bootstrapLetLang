@@ -69,7 +69,7 @@ data ParseMatchPattern { base: ParseExpression, guard: ParseExpression, body: Pa
 
 data ParseExpressionStatement { ex: ParseExpression, pos: Position }
 data ParseAssignmentStatement { name: String, declaredType: TypeExpression, body: ParseExpression, pos: Position }
-data ParseFunctionStatement { name: String, generics: List[String], body: ParseLambdaExp, pos: Position }
+data ParseFunctionStatement { name: String, generics: List[String], body: ParseLambdaExp, vararg: Boolean, pos: Position }
 data ParseTypeStatement { name: String, value: TypeExpression, pos: Position }
 data ParseImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
 data ParseDeconstructDataStatement { base: ParseExpression, values: List[(String, String)], pos: Position }

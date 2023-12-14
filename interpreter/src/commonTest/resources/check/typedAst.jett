@@ -1,0 +1,93 @@
+import this/position.Position
+
+import this/access.AccessModifier
+
+import this/type.typeExpression.QualifiedTypeExpression
+
+type TypedExpression
+    = TypedNullLiteralExp
+    | TypedBooleanLiteralExp
+    | TypedNumberLiteralExp
+    | TypedStringLiteralExp
+    | TypedCharLiteralExp
+    | TypedIdentifierExp
+    | TypedBinaryOpExp
+    | TypedUnaryOpExp
+    | TypedBlockExp
+    | TypedFieldAccessExp
+    | TypedCallExp
+    | TypedMethodCallExp
+    | TypedLambdaExp
+    | TypedIfExp
+    | TypedReturnExp
+    | TypedThrowExp
+    | TypedConstructExp
+    | TypedConstructTupleExp
+    | TypedMatchExp
+
+type TypedStatement
+    = TypedExpressionStatement
+    | TypedAssignmentStatement
+    | TypedFunctionStatement
+    | TypedTypeStatement
+    | TypedImportStatement
+    | TypedDeconstructDataStatement
+    | TypedDeconstructTupleStatement
+    | TypedDebuggerStatement
+
+type TypedDeclaration
+    = TypedAtomDeclare
+    | TypedDataDeclare
+    | TypedTypeDeclare
+    | TypedFunctionDeclare
+    | TypedImportDeclare
+    | TypedConstantDeclare
+    | TypedProtocolDeclare
+    | TypedImplDeclare
+
+data TypedNullLiteralExp { pos: Position, type: QualifiedTypeExpression }
+data TypedBooleanLiteralExp { value: Boolean, pos: Position, type: QualifiedTypeExpression }
+data TypedNumberLiteralExp { value: String, pos: Position, type: QualifiedTypeExpression }
+data TypedStringLiteralExp { value: String, pos: Position, type: QualifiedTypeExpression }
+data TypedCharLiteralExp { value: Char, pos: Position, type: QualifiedTypeExpression }
+data TypedIdentifierExp { name: String, pos: Position, type: QualifiedTypeExpression }
+data TypedBinaryOpExp { op: String, left: TypedExpression, right: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+data TypedUnaryOpExp { op: String, ex: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+data TypedBlockExp { body: List[TypedStatement], pos: Position, type: QualifiedTypeExpression }
+data TypedFieldAccessExp { base: TypedExpression, name: String, pos: Position, type: QualifiedTypeExpression }
+data TypedCallExp { func: TypedExpression, arguments: List[TypedExpression], typeArguments: List[QualifiedTypeExpression], pos: Position, type: QualifiedTypeExpression }
+data TypedMethodCallExp { base: TypedExpression, name: String, arguments: List[QualifiedTypeExpression], typeArguments: List[QualifiedTypeExpression], pos: Position, type: QualifiedTypeExpression }
+data TypedLambdaExp { args: List[String], body: TypedExpression, pos: Position, argTypes: List[QualifiedTypeExpression], resultType: QualifiedTypeExpression, type: QualifiedTypeExpression }
+data TypedIfExp { condition: TypedExpression, thenExp: TypedExpression, elseExp: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+data TypedReturnExp { ex: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+data TypedThrowExp { ex: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+data TypedConstructExp { base: TypedExpression, values: List[(String, TypedExpression)], pos: Position, type: QualifiedTypeExpression }
+data TypedConstructTupleExp { values: List[TypedExpression], pos: Position, type: QualifiedTypeExpression }
+data TypedMatchExp { base: TypedExpression, patterns: List[TypedMatchPattern], pos: Position, type: QualifiedTypeExpression }
+
+data TypedMatchPattern { base: TypedExpression, guard: TypedExpression, body: TypedExpression, pos: Position, type: QualifiedTypeExpression }
+
+data TypedExpressionStatement { ex: TypedExpression, pos: Position }
+data TypedAssignmentStatement { name: String, declaredType: QualifiedTypeExpression, body: TypedExpression, pos: Position }
+data TypedFunctionStatement { name: String, generics: List[String], body: TypedLambdaExp, vararg: Boolean, pos: Position }
+data TypedTypeStatement { name: String, value: QualifiedTypeExpression, pos: Position }
+data TypedImportStatement { org: String, module: String, path: List[String], name: String, pos: Position }
+data TypedDeconstructDataStatement { base: TypedExpression, values: List[(String, String)], pos: Position }
+data TypedDeconstructTupleStatement { base: TypedExpression, names: List[String], pos: Position }
+data TypedDebuggerStatement { pos: Position }
+
+
+data TypedAtomDeclare { name: String, access: AccessModifier, pos: Position }
+data TypedDataDeclare { name: String, generics: List[String], body: Map[String, QualifiedTypeExpression], access: AccessModifier, pos: Position }
+data TypedTypeDeclare { type: TypedTypeStatement, access: AccessModifier, pos: Position }
+data TypedFunctionDeclare { func: TypedFunctionStatement, access: AccessModifier, pos: Position }
+data TypedImportDeclare { statement: TypedImportStatement, access: AccessModifier, pos: Position }
+data TypedConstantDeclare { assign: TypedAssignmentStatement, access: AccessModifier, pos: Position }
+data TypedProtocolDeclare { name: String, generics: List[String], funcs: List[(String, TypedProtocolFunctionDeclare)], access: AccessModifier, pos: Position }
+data TypedImplDeclare { base: String, proto: String, funcs: List[TypedFunctionDeclare], access: AccessModifier, pos: Position }
+
+data TypedProtocolFunctionDeclare { generics: List[String], params: List[QualifiedTypeExpression], result: QualifiedTypeExpression }
+
+data TypedFile { path: List[String], declarations: List[TypedDeclaration] }
+
+data TypedModule { files: Map[List[String], TypedFile] }
