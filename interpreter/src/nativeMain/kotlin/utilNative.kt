@@ -1,7 +1,6 @@
 import kotlinx.cinterop.*
 import platform.posix.*
 
-
 actual class FileImpl actual constructor(actual val path: String) {
 
   actual fun extension(): String {
@@ -71,10 +70,9 @@ actual class FileImpl actual constructor(actual val path: String) {
     }
   }
 
-  actual companion object {
-    actual val systemFileSeparator: Char = '/'
+  companion object {
+    val systemFileSeparator: Char = '/'
   }
-
 
 }
 

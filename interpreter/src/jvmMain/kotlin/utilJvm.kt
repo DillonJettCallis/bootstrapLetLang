@@ -19,8 +19,8 @@ actual class FileImpl(private val file: File) {
     return file.readText()
   }
 
-  actual companion object {
-    actual val systemFileSeparator: Char = File.separatorChar
+  companion object {
+    val systemFileSeparator: Char = File.separatorChar
   }
 
 }

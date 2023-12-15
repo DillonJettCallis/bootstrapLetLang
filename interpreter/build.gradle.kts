@@ -1,5 +1,5 @@
 plugins {
-  kotlin("multiplatform") version "1.8.21"
+  kotlin("multiplatform") version "1.9.21"
 }
 
 repositories {
@@ -7,6 +7,14 @@ repositories {
 }
 
 kotlin {
+  targets.all {
+    compilations.all {
+      compilerOptions.configure {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+      }
+    }
+  }
+
   jvm()
 
   linuxX64("native") {
@@ -16,6 +24,10 @@ kotlin {
   }
 
   sourceSets {
+    all {
+      languageSettings.optIn("kotlinx.cinterop.ExperimentalForeignApi")
+    }
+
     named("commonMain") {
       dependencies {
         implementation(kotlin("stdlib-common"))
@@ -26,12 +38,6 @@ kotlin {
       dependencies {
         implementation(kotlin("test-common"))
         implementation(kotlin("test-annotations-common"))
-      }
-    }
-
-    jvm().compilations["main"].defaultSourceSet {
-      dependencies {
-        implementation(kotlin("stdlib-jdk8"))
       }
     }
 
