@@ -30,15 +30,19 @@ fun main(args: List[String]): Dictionary = {
 
   // collect all declarations into one blob
   val declarations = collectSymbols(module);
+  debugger;
 
   // checks if all imports are pointing to something valid that is accessible
   checkImports(module, declarations);
+  debugger;
 
   // fully qualify all type expressions in the codebase
   val qualified = qualify(module);
+  debugger;
 
   // map of all imports (hopefully)
   val importGraph = buildImportGraph(qualified);
+  debugger;
 
   val sampleQuery = importGraph.importsOf(List.of('type', 'typeExpression'));
   debugger;

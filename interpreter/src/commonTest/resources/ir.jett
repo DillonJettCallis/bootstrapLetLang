@@ -1,0 +1,360 @@
+import this/type.typeExpression.TypeExpression;
+import this/symbols.QualifiedSymbol
+
+enum Ir {
+  Pop,
+  Dup,
+  Swap,
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  GreaterThan,
+  GreaterThanOrEqualTo,
+  LessThan,
+  LessThanOrEqualTo,
+  EqualTo,
+  NotEqualTo,
+  Is,
+  IsNot,
+  Negate,
+  Not,
+  Return,
+  Throw,
+  Const,
+
+  PushScope,
+  PopScope,
+
+  Yield,
+  Send,
+  Receive,
+  Spawn,
+
+  Debug,
+
+  LoadLiteralNull,
+  LoadLiteralBoolean,
+  LoadLiteralNumber,
+  LoadLiteralString,
+  LoadLiteralChar,
+  
+  LoadLocal,
+  StoreLocal,
+  Call,
+  TailCall,
+  Access,
+  ListAccess,
+  IrFunction,
+  Impl,
+
+  Label,
+  IfLabeled,
+  JumpLabeled,
+
+  If,
+  Jump
+}
+
+data Pop { pos: Position, type: TypeExpression }
+data Dup { pos: Position, type: TypeExpression }
+data Swap { pos: Position, type: TypeExpression }
+
+data Add { pos: Position, type: TypeExpression }
+data Subtract { pos: Position, type: TypeExpression }
+data Multiply { pos: Position, type: TypeExpression }
+data Divide { pos: Position, type: TypeExpression }
+data GreaterThan { pos: Position, type: TypeExpression }
+data GreaterThanOrEqualTo { pos: Position, type: TypeExpression }
+data LessThan { pos: Position, type: TypeExpression }
+data LessThanOrEqualTo { pos: Position, type: TypeExpression }
+data EqualTo { pos: Position, type: TypeExpression }
+data NotEqualTo { pos: Position, type: TypeExpression }
+data Is { pos: Position, type: TypeExpression }
+data IsNot { pos: Position, type: TypeExpression }
+data Negate { pos: Position, type: TypeExpression }
+data Not { pos: Position, type: TypeExpression }
+
+data Return { pos: Position, type: TypeExpression }
+data Throw { pos: Position, type: TypeExpression }
+
+data Const { pos: Position, type: TypeExpression }
+
+data PushScope { pos: Position, type: TypeExpression }
+data PopScope { pos: Position, type: TypeExpression }
+
+data Yield { pos: Position, type: TypeExpression }
+data Send { pos: Position, type: TypeExpression }
+data Receive { pos: Position, type: TypeExpression }
+data Spawn { pos: Position, type: TypeExpression }
+
+data Debug { pos: Position, type: TypeExpression }
+
+data LoadLiteralNull { pos: Position, type: TypeExpression }
+data LoadLiteralBoolean { pos: Position, type: TypeExpression, value: Boolean }
+data LoadLiteralNumber { pos: Position, type: TypeExpression, value: String }
+data LoadLiteralString { pos: Position, type: TypeExpression, value: String }
+data LoadLiteralChar { pos: Position, type: TypeExpression, value: Char }
+data LoadLiteralAtom { pos: Position, type: TypeExpression, name: QualifiedSymbol }
+
+data LoadLocal { pos: Position, type: TypeExpression, name: String }
+data StoreLocal { pos: Position, type: TypeExpression, name: String }
+data Call { pos: Position, type: TypeExpression, args: Int }
+data TailCall { pos: Position, type: TypeExpression, args: Int }
+data Access { pos: Position, type: TypeExpression, name: String }
+data ListAccess { pos: Position, type: TypeExpression, index: Int }
+data IrFunction { pos: Position, type: TypeExpression, params: List[String], body: List[Ir] }
+data Impl { pos: Position, type: TypeExpression, base: String, name: String, static: Boolean, func: IrFunction }
+
+data Label { pos: Position, type: TypeExpression, id: Int }
+
+data IfLabeled { pos: Position, type: TypeExpression, label: Label }
+data JumpLabeled { pos: Position, type: TypeExpression, label: Label }
+
+data If { pos: Position, type: TypeExpression, jumpIfFalse: Int }
+data Jump { pos: Position, type: TypeExpression, jump: Int }
+
+enum IrDeclaration {
+  IrAtomDeclare,
+  IrDataDeclare,
+  IrEnumDeclare,
+  IrFunctionDeclare,
+  IrImportDeclare,
+  IrConstantDeclare,
+  IrProtocolDeclare,
+  IrImplDeclare,
+}
+
+data IrAtomDeclare { name: String, access: AccessModifier, pos: Position }
+data IrDataDeclare { name: String, generics: List[String], body: Map[String, TypeExpression], access: AccessModifier, pos: Position }
+data IrEnumDeclare { name: String, values: List[String], access: AccessModifier, pos: Position }
+data IrImportDeclare { org: String, module: String, path: List[String], name: String, access: AccessModifier, pos: Position }
+data IrProtocolDeclare { name: String, generics: List[String], funcs: List[(String, IrProtocolFunctionDeclare)], access: AccessModifier, pos: Position }
+data IrImplDeclare { base: String, proto: String, funcs: List[IrFunctionDeclare], access: AccessModifier, pos: Position }
+data IrFunctionDeclare { func: IrFunction, access: AccessModifier, pos: Position }
+data IrConstantDeclare { name: String, body: List[Ir], declaredType: TypeExpression, access: AccessModifier, pos: Position }
+
+data IrProtocolFunctionDeclare { generics: List[String], params: List[TypeExpression], result: TypeExpression }
+
+data IrFile { path: List[String], declarations: List[IrDeclaration] }
+
+fun compileFile(file: ParseFile): IrFile {
+    val declarations = file.declarations.map { it =>
+      match (it) {
+        _ when it is ParseAtomDeclare => {
+          IrAtomDeclare { name: it.name, access: it.access, pos: it.pos }
+        }
+        _ when it is ParseDataDeclare => {
+          IrDataDeclare { name: it.name, generics: it.generics, body: it.body, access: it.access, pos: it.pos }
+        }
+        _ when it is ParseEnumDeclare => {
+          IrEnumDeclare { name: it.name, values: it.values, access: it.access, pos: it.pos }
+        }
+        _ when it is ParseImportDeclare => {
+          IrImportDeclare { org: it.org, module: it.module, path: it.path, name: it.name, access: it.access, pos: it.pos }
+        }
+        _ when it is ParseConstantDeclare => {
+          val compiler = IrCompiler.new();
+
+          compiler.compilePartial(it.assign.body);
+
+          val type = compiler.popStack();
+          val body = compiler.getCode();
+
+
+        }
+        _ when it is ParseProtocolDeclare => it.pos.fail("Protocols are not yet implemented")
+        _ when it is ParseFunctionDeclare => {
+
+        }
+        _ when it is ParseImplDeclare => {
+
+        }
+      }
+    };
+
+    return IrFile { path: file.path, declarations };
+  }
+
+private data IrCompiler {
+  state: MutIrState
+}
+
+implement IrCompiler {
+  fun new(): IrCompiler {
+    return IrCompiler { state: MutIrState.new() };
+  }
+}
+
+
+
+
+private data IrState {
+  nextLabelId: Int,
+  stack: List[TypeExpression],
+  locals: List[Map[String, TypeExpression]],
+  code: List[Ir]
+}
+
+implement IrState {
+  fun new(): IrState {
+    return IrState {
+      nextLabelId: 0,
+      scope: IrScope.new(),
+    }
+  }
+
+  fun pushStack(this, type: TypeExpression): IrState {
+    return this {
+      stack: this.stack.add(type)
+    };
+  }
+
+  fun popStack(this): (IrState, TypeExpression) {
+    return ( this { stack: this.stack.init() }, this.stack.last() );
+  }
+
+  fun peekStack(this): TypeExpression {
+    return this.stack.last();
+  }
+
+  fun setLocal(this, name: String, type: TypeExpression): IrState {
+    return this { locals: this.locals.init().add(this.locals.last().set(name, type)) };
+  }
+
+  fun getLocal(this, name: String): TypeExpression {
+    return this.locals.last().get(name);
+  }
+
+  fun pushScope(this): IrState {
+    return this { locals: this.locals.add(Map.of()) }
+  }
+
+  fun popScope(this): IrState {
+    return this { locals: this.locals.init() };
+  }
+
+  fun nextLabel(this, pos: Position): (IrState, Label) {
+    return ( this { nextLabelId: this.nextLabelId + 1 }, Label { pos, type: this.scope.peekStack(), id: this.nextLabelId } );
+  }
+}
+
+private enum MutIrStateMessage {
+  SetIrState,
+  GetIrState,
+  UpdateIrState
+}
+
+private data SetIrState { compiler: IrState }
+private data UpdateIrState { action: { IrState -> IrState} }
+private data GetIrState { response: SendChannel[IrState] }
+
+private fun mutIrStateActor(compiler: IrState, src: ReceiveChannel[MutIrStateMessage]): Unit {
+  val next = src.receive();
+
+  match (next) {
+    _ when next is SetIrState => mutIrStateActor(next.compiler, src)
+    _ when next is UpdateIrState => {
+      mutIrStateActor(next.action(compiler, src));
+    }
+    _ when next is GetIrState => {
+      next.response.send(compiler);
+      mutIrStateActor(compiler, src);
+    }
+    _ => throw Error.new("Invalid message '${next}' received!")
+  }
+}
+
+private data MutIrState {
+  sender: SendChannel[MutIrStateMessage]
+}
+
+implement MutIrState {
+
+  fun new(): MutIrState {
+    val (sender, receiver) = makeChannel[MutIrStateMessage]();
+
+    // spawn the actor
+    spawn({ => mutIrStateActor(IrState.new(), receiver) });
+
+    return MutIrState {
+      sender
+    }
+  }
+
+  private fun set(this, compiler: IrState): Unit {
+    this.sender.send(SetIrState { compiler });
+  }
+
+  private fun get(this): IrState {
+    val (sender, receiver) = makeChannel[IrState]();
+
+    this.sender.send(GetIrState { response: sender });
+
+    return receiver.receive();
+  }
+
+  private fun update(this, action: { IrState -> IrState }): Unit {
+    this.update(UpdateIrState { action });
+  }
+
+  fun pushStack(this, type: TypeExpression): Unit {
+    this.update({ prev => prev.pushStack(type) });
+  }
+
+  fun popStack(this): TypeExpression {
+    val prev = this.get();
+
+    val (modified, result) = prev.popStack();
+
+    this.set(modified);
+
+    return result;
+  }
+
+  fun peekStack(this): TypeExpression {
+    return this.get().peekStack();
+  }
+
+  fun setLocal(this, name: String, type: TypeExpression): Unit {
+    this.update({ prev => prev.setLocal(name, type) });
+  }
+
+  fun getLocal(this, name: String): TypeExpression {
+    return this.get().getLocal(name);
+  }
+
+  fun pushScope(this): Unit {
+    this.update({ prev => prev.pushScope() });
+  }
+
+  fun popScope(this): Unit {
+    this.update({ prev => prev.popScope() });
+  }
+
+  fun nextLabel(this, pos: Position): (IrState, Label) {
+    val prev = this.get();
+
+    val (mutated, label) = prev.nextLabel(pos);
+
+    this.set(mutated);
+
+    return label;
+  }
+
+  fun getCode(this): List[Ir] {
+    return this.get().code;
+  }
+
+  fun setCode(this, code: List[Ir]): Unit {
+    this.update({ prev => prev { code } });
+  }
+
+  fun addCode(this, ir: Ir): Unit {
+    this.update({ prev => prev { code: prev.code.add(ir) } });
+  }
+
+  fun addAllCode(this, body: List[Ir]): Unit {
+    this.update({ prev => prev { code: prev.code.concat(ir) } });
+  }
+}
