@@ -128,16 +128,22 @@ implement Scope {
     })
   }
 
-  fun bindGenerics(this, generics: List[String]): Scope = {
+  fun bindGenerics(this, generics: List[String]): (Scope, List[QualifiedGenericParamTypeExp]) = {
     if (generics == null) {
       return this;
     }
 
-    generics.fold(this, { scope, gen =>
+    val boundGenerics = generics.map({ gen =>
       // TODO: 'Any' represents the type bound, which we currently don't have.
       // someday we'll need to add type bounds, and this is where they'll go
-      scope.set(gen, typeAny)
+      QualifiedGenericParamTypeExp { name: gen, bound: typeAny }
+    })
+
+    val childScope = boundGenerics.fold(this, { scope, gen =>
+      scope.set(gen.name, gen)
     });
+
+    return (childScope, boundGenerics);
   }
 
   fun set(this, name: String, symbol: QualifiedTypeExpression): Scope = {
@@ -222,7 +228,7 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
     _ when dec is ParseDataDeclare => {
       val { name, generics, body, access, pos } = dec;
 
-      val childScope = scope.bindGenerics(generics);
+      val (childScope, boundGenerics) = scope.bindGenerics(generics);
 
       val newBody = body.entries().fold( Map.of(), { sum, next =>
         val (key, ex) = next;
@@ -231,7 +237,7 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
 
       QualifiedDataDeclare {
         name,
-        generics,
+        generics: boundGenerics,
         body: newBody,
         access,
         pos
@@ -305,8 +311,6 @@ private fun qualifyDeclaration(dec: ParseDeclaration, scope: Scope): QualifiedDe
   }
 }
 
-// this one is special because type statements and import statements are allowed to introduce new types into scope,
-// nothing else can do that. For those two, short-circuit with the set values, for the rest return the input scope
 private fun qualifyStatement(state: ParseStatement, scope: Scope): (QualifiedStatement, Scope) = {
   match (state) {
     _ when state is ParseExpressionStatement => (qualifyExpressionStatement(state, scope), scope)
@@ -518,12 +522,11 @@ private fun qualifyTypeExpression(ex: TypeExpression, pos: Position, scope: Scop
   match (ex) {
     _ when ex is NamedTypeExp => scope.get(ex.name, pos) // here is where the magic happens!
     _ when ex is GenericTypeExp => {
-      // TODO: right now type aliases can't take generic params, but in the future they might
-      // and right here is when we'd want to replace those generic params with the ones supplied by this type
-      val resolved = qualifyTypeExpression(ex.base, pos, scope);
+      // TODO: maybe type aliases will make this more complicated in the future
+      val base = scope.get(ex.base, pos);
 
       QualifiedGenericTypeExp {
-        base: resolved,
+        base,
         params: ex.params.map({ it => qualifyTypeExpression(it, pos, scope) })
       }
     }

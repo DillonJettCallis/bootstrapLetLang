@@ -2,7 +2,10 @@ import this/position.Position
 
 import this/access.AccessModifier
 
+import this/symbols.QualifiedSymbol
+
 import this/type.typeExpression.QualifiedTypeExpression
+import this/type/typeExpression.QualifiedFunctionTypeExp
 
 enum QualifiedExpression {
   QualifiedNullLiteralExp,
@@ -70,7 +73,7 @@ data QualifiedMatchPattern { base: QualifiedExpression, guard: QualifiedExpressi
 
 data QualifiedExpressionStatement { ex: QualifiedExpression, pos: Position }
 data QualifiedAssignmentStatement { name: String, declaredType: QualifiedTypeExpression, body: QualifiedExpression, pos: Position }
-data QualifiedFunctionStatement { name: String, generics: List[String], body: QualifiedLambdaExp, pos: Position }
+data QualifiedFunctionStatement { name: String, generics: List[QualifiedGenericParamTypeExp], body: QualifiedLambdaExp, pos: Position }
 data QualifiedDeconstructDataStatement { base: QualifiedExpression, values: List[(String, String)], pos: Position }
 data QualifiedDeconstructTupleStatement { base: QualifiedExpression, names: List[String], pos: Position }
 data QualifiedDebuggerStatement { pos: Position }
@@ -90,3 +93,19 @@ data QualifiedProtocolFunctionDeclare { generics: List[String], params: List[Qua
 data QualifiedFile { path: List[String], declarations: List[QualifiedDeclaration] }
 
 data QualifiedModule { files: Map[List[String], QualifiedFile] }
+
+implement QualifiedFunctionStatement {
+  fun type(this): QualifiedFunctionTypeExp = QualifiedFunctionTypeExp {
+    params: this.body.argTypes,
+    result: this.body.resultType,
+    generics: this.generics
+  }
+}
+
+implement QualifiedImportDeclare {
+  fun symbol(this): QualifiedSymbol = {
+    val { org, module, path } = this;
+
+    return QualifiedSymbol { org, module, path };
+  }
+}

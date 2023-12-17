@@ -14,7 +14,7 @@ import this/symbols.QualifiedSymbol
  */
 
 data NamedTypeExp { name: String }
-data GenericTypeExp { base: TypeExpression, params: List[TypeExpression] }
+data GenericTypeExp { base: String, params: List[TypeExpression] }
 data FunctionTypeExp { params: List[TypeExpression], result: TypeExpression, generics: List[String] }
 data TupleTypeExp { params: List[TypeExpression] }
 
@@ -27,12 +27,14 @@ enum TypeExpression {
 
 // matching versions of the above, but with fully qualified names
 data QualifiedNamedTypeExp { name: QualifiedSymbol }
-data QualifiedGenericTypeExp { base: QualifiedTypeExpression, params: List[QualifiedTypeExpression] }
+data QualifiedGenericParamTypeExp { name: String, bound: QualifiedTypeExpression }
+data QualifiedGenericTypeExp { base: QualifiedSymbol, params: List[QualifiedTypeExpression] }
 data QualifiedFunctionTypeExp { params: List[QualifiedTypeExpression], result: QualifiedTypeExpression, generics: List[String] }
 data QualifiedTupleTypeExp { params: List[QualifiedTypeExpression] }
 
 enum QualifiedTypeExpression {
   QualifiedNamedTypeExp,
+  QualifiedGenericParamTypeExp,
   QualifiedGenericTypeExp,
   QualifiedFunctionTypeExp,
   QualifiedTupleTypeExp,
@@ -41,6 +43,7 @@ enum QualifiedTypeExpression {
 fun walkTypeExpressionTree(ex: QualifiedTypeExpression, action: { QualifiedTypeExpression -> QualifiedTypeExpression }): QualifiedTypeExpression = {
   val step = match (ex) {
     _ when ex is QualifiedNamedTypeExp => ex
+    _ when ex is QualifiedGenericParamTypeExp => ex
     _ when ex is QualifiedGenericTypeExp => QualifiedGenericTypeExp {
       base: walkTypeExpressionTree(ex.base, action),
       params: ex.params.map({ it => walkTypeExpressionTree(it, action) })
@@ -50,8 +53,6 @@ fun walkTypeExpressionTree(ex: QualifiedTypeExpression, action: { QualifiedTypeE
       result: action(result)
     }
     _ when ex is QualifiedTupleTypeExp => QualifiedTupleTypeExp { params: ex.params.map(action) }
-    _ when ex is QualifiedUnionTypeExp => QualifiedUnionTypeExp { params: ex.params.map(action) }
-    _ when ex is QualifiedIntersectionTypeExp => QualifiedIntersectionTypeExp { params: ex.params.map(action) }
   };
 
   return action(step);

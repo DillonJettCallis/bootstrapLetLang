@@ -1235,6 +1235,10 @@ private fun parseTypeGeneric(cursor: TokenCursor): (TokenCursor, TypeExpression)
   val maybeBracket = firstCursor.curr()
 
   return if (maybeBracket is TokenSymbol && maybeBracket.value == "[") {
+    if (base isNot NamedTypeExp) {
+      maybeBracket.pos.fail("Generic parameters can only follow a named type!")
+    }
+
     val (nextCursor, parameters) = parseTypeList(firstCursor.skip())
 
     if (parameters.isEmpty()) {
@@ -1244,7 +1248,7 @@ private fun parseTypeGeneric(cursor: TokenCursor): (TokenCursor, TypeExpression)
     val (finalCursor, closeBracket) = nextCursor.next()
 
     if (closeBracket is TokenSymbol && closeBracket.value == "]") {
-      (finalCursor, GenericTypeExp{base, params: parameters})
+      (finalCursor, GenericTypeExp{base: base.name, params: parameters})
     } else {
       closeBracket.pos.fail("Expected end of generic type declaration")
     }

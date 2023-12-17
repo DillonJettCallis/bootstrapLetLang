@@ -63,6 +63,7 @@ implement Dictionary {
             // atoms contain a type and value wrapped up into one concept
             sum.setType(name, AtomType { name })
               .setValue(name, QualifiedNamedTypeExp { name })
+              .setValue(name.child('[is]'), QualifiedFunctionTypeExp { params: List.of(typeAny), result: typeBoolean, generics: List.of() })
           }
           _ when dec is QualifiedDataDeclare => {
             val { generics, body: fields } = dec;
@@ -73,6 +74,7 @@ implement Dictionary {
             sum.setType(meta, AtomType { name: meta })
               .setValue(name, QualifiedNamedTypeExp { name: meta } )
               .setType(name, DataType { name, generics, fields })
+              .setValue(meta.child('[is]'), QualifiedFunctionTypeExp { params: List.of(typeAny), result: typeBoolean, generics: List.of() })
           }
           _ when dec is QualifiedEnumDeclare => {
             val name = symbol(dec.name)
@@ -81,6 +83,7 @@ implement Dictionary {
             sum.setType(meta, AtomType { name: meta })
               .setValue(name, QualifiedNamedTypeExp { name: meta })
               .setType(name, EnumType { name, values: dec.values })
+              .setValue(meta.child('[is]'), QualifiedFunctionTypeExp { params: List.of(typeAny), result: typeBoolean, generics: List.of() })
           }
           _ when dec is QualifiedFunctionDeclare => {
             val { name: rawName, generics, body } = dec.func;
@@ -127,5 +130,25 @@ implement Dictionary {
       })
     })
   }
-
 }
+
+private val typeAny: QualifiedNamedTypeExp = {
+  QualifiedNamedTypeExp {
+    name: QualifiedSymbol {
+      org: 'core',
+      module: 'core',
+      path: List.of('Any')
+    }
+  }
+}
+
+private val typeBoolean: QualifiedNamedTypeExp = {
+  QualifiedNamedTypeExp {
+    name: QualifiedSymbol {
+      org: 'core',
+      module: 'core',
+      path: List.of('Boolean')
+    }
+  }
+}
+

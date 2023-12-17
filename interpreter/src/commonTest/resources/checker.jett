@@ -1,0 +1,912 @@
+import this/sweep.dictionary.Dictionary
+
+import this/sweep.qualifiedAst.QualifiedAtomDeclare
+import this/sweep.qualifiedAst.QualifiedConstantDeclare
+import this/sweep.qualifiedAst.QualifiedDataDeclare
+import this/sweep.qualifiedAst.QualifiedFunctionDeclare
+import this/sweep.qualifiedAst.QualifiedImplDeclare
+import this/sweep.qualifiedAst.QualifiedImportDeclare
+import this/sweep.qualifiedAst.QualifiedModule
+import this/sweep.qualifiedAst.QualifiedProtocolDeclare
+import this/sweep.qualifiedAst.QualifiedEnumDeclare
+
+import this/type.typeExpression.defineThis
+
+data TypeScope {
+  values: Map[String, QualifiedTypeExpression], // stores only local values
+  types: Map[String, QualifiedTypeExpression], // dictionary stores ALL global types, but this stores all *relevant* ones.
+  dict: Dictionary
+}
+
+implement TypeScope {
+
+  fun new(dict: Dictionary): TypeScope = TypeScope { values: Map.of(), genericTypes: Map.of(), dict, parent: null }
+
+  fun getValue(this, name: String): QualifiedTypeExpression = this.values.get(name)
+
+  fun setValue(this, name: String, ex: QualifiedTypeExpression): TypeScope = this{values: values.set(name, ex)}
+
+  fun getType(this, name: String): QualifiedTypeExpression = this.types.get(name)
+
+  fun setType(this, name: String, ex: QualifiedTypeExpression): TypeScope = this{types: types.set(name, ex)}
+
+  fun doImport(this, dec: QualifiedImportDeclare): TypeScope = {
+    val base = dec.symbol();
+    val meta = base.child('[meta]');
+
+    val type = this.dict.types.get(base);
+
+    match (type) {
+      null => {
+        // no type, but there might be a value
+        val value = this.dict.values.get(base);
+
+        if (value == null) {
+          // in theory this should never happen because we've verified imports already
+          dec.pos.fail("Import could not be found ${base}");
+        } else {
+          this.setValue(dec.name, value)
+        }
+      }
+      _ when type is AtomType => {
+        // add the type and value
+        this.setValue(dec.name, base)
+          .setType(dec.name, base)
+      }
+      _ when type is DataType => {
+        // add the type, the meta value and meta type
+        this.setValue(dec.name, meta)
+          .setType(dec.name, meta)
+          .setType(dec.name, base)
+      }
+      _ when type is EnumType => {
+        // just like DataType
+        this.setValue(dec.name, meta)
+          .setType(dec.name, meta)
+          .setType(dec.name, base)
+      }
+      _ when type is ProtocolType => {
+        dec.pos.fail("Protocols are not supported yet")
+      }
+    }
+  }
+
+  // resolve these two types, ensuring that actual can be assigned to expected, or throwing an error if it can't.
+  fun resolve(this, actual: QualifiedTypeExpression, expected: QualifiedTypeExpression, pos: Position): (TypeScope, QualifiedTypeExpression) = {
+    // TODO: this is a useless match, I'm sure there are better ways to do this
+    match (this) {
+      _ when actual is QualifiedFunctionTypeExp && expected is QualifiedFunctionTypeExp => {
+        // this code is actually NOT used inside a function itself, that code is hand-written.
+        // at this point we're only talking about higher-order parameters to a function.
+        // so this code can resolve a generic value, but it cannot introduce new ones.
+        // this code also always needs to compare the result types of both sides
+
+        // size check is the only easy thing about this
+        if (actual.params.size() != expected.params.size()) {
+          pos.fail("Expected lambda of ${expected.params.size()} parameters but found ${actual.params.size()} parameters");
+        }
+
+        val (paramScope, params): (TypeScope, List[QualifiedTypeExpression]) = actual.params.zip(expected.params).fold((this, List.of()), { sumPair, nextPair =>
+          val (scope, curr) = sumPair;
+          val (actual, expected) = nextPair;
+          val (resultScope, next) = scope.resolve(actual, expected, pos);
+
+          return (resultScope, curr.add(next));
+        });
+
+        // now for the result types
+        val (resultScope, result) = paramScope.resolve(actual.result, expected.result, pos);
+
+        // bundle it all back up
+        return (resultScope, QualifiedFunctionTypeExp { params, result, generics: params.generics });
+      }
+      _ when actual is QualifiedTupleTypeExp && expected is QualifiedTupleTypeExp => {
+        if (actual.params.size() != expected.params.size()) {
+          pos.fail("Expected tuple of size ${expected.params.size()} parameters but found tuple of size ${actual.params.size()}");
+        }
+
+        // copied from function handling because honestly they are the same at this point
+        val (paramScope, params): (TypeScope, List[QualifiedTypeExpression]) = actual.params.zip(expected.params).fold((this, List.of()), { sumPair, nextPair =>
+          val (scope, curr) = sumPair;
+          val (actual, expected) = nextPair;
+          val (resultScope, next) = scope.resolve(actual, expected, pos);
+
+          return (resultScope, curr.add(next));
+        });
+
+        return (paramScope, QualifiedTupleTypeExp { params });
+      }
+      _ when actual is QualifiedGenericTypeExp && expected is QualifiedGenericTypeExp => {
+        // first check the base type
+        val (baseScope, base) = this.resolve(actual.base, expected.base, pos);
+
+        // now check the number and values of params (copied from function again)
+        if (actual.params.size() != expected.params.size()) {
+          pos.fail("Expected ${expected.params.size()} generic parameters for ${base} but found ${actual.params.size()} parameters");
+        }
+
+        val (paramScope, params): (TypeScope, List[QualifiedTypeExpression]) = actual.params.zip(expected.params).fold((baseScope, List.of()), { sumPair, nextPair =>
+          val (scope, curr) = sumPair;
+          val (actual, expected) = nextPair;
+          val (resultScope, next) = scope.resolve(actual, expected, pos);
+
+          return (resultScope, curr.add(next));
+        });
+
+        return (paramScope, QualifiedGenericTypeExp { base, params });
+      }
+      _ when actual is QualifiedNamedTypeExp && expected is QualifiedNamedTypeExp => {
+        // these two should be exactly the same (except for the bottom type)
+        // TODO: we'll need to handle things like protocols eventually, maybe enums too
+
+        if (actual == typeNothing) {
+          // this is safe because actual is asserting that it will never, ever return at all
+          return (this, expected);
+        }
+
+        if (expected == typeAny) {
+          // this is safe because we're not expecting anything in particular, so actual is ok as is
+          return (this, actual);
+        }
+
+        if (actual.name == expected.name) {
+          // nothing else to do, they match exactly
+          return (this, actual);
+        } else {
+          // they don't match, fail (until we add protocols)
+          pos.fail("Expected type ${expected.name} but found ${actual.name}");
+        }
+      }
+      _ when expected is QualifiedGenericParamTypeExp => {
+        // if we're expecting a generic parameter, we should see if actual can fit into it, whatever it is
+        // we will NOT use the type specified in expected, but instead it's name and assume that
+        // it has already been entered into this scope. This way, we can compare the bounds of multiple
+        // parameters to ensure that they match.
+
+        val expectedBound = this.getType(expected.name);
+
+        if (expectedBound == null) {
+          // sanity check here
+          pos.fail("A bound was not registered in TypeScope, this is a compiler error.")
+        }
+
+        // compare the actual to the expectedBound type. If they don't resolve an error is thrown here.
+        val (resolvedScope, result) = this.resolve(actual, expectedBound, pos);
+
+        // here is the magic - where we set the type to the resolved type
+        // this should ensure that if you reuse a generic parameter it wll carry-through all the way
+        // and the first usage will be compared to the second.
+        return (resolvedScope.setType(expected.name, result), result);
+      }
+      _ => {
+        // TODO: Needs way better error handling here
+        pos.fail("Unable to resolve types. Expected $expected but found $actual");
+      }
+    }
+  }
+
+  // in an `if` or `match` where there are branches coming together, use this to determine the higher result of both types
+  fun merge(this, left: QualifiedTypeExpression, right: QualifiedTypeExpression, pos: Position): QualifiedTypeExpression = {
+    // no matter what, if both are the same, then we're good
+    if (left == right) {
+      return left;
+    }
+
+    // if one type is Nothing, return the other type
+    if (left == typeNothing) {
+      return right;
+    }
+
+    if (right == typeNothing) {
+      return left;
+    }
+
+    // TODO: if both types fit into the same enum, that should go here
+    // TODO: if both types fill the same protocol, then use that instead
+
+    pos.fail("No upper bound found between ${left} and ${right}");
+  }
+
+  // look up a field on a type. If that field is not found an exception will be thrown
+  fun lookupField(this, type: QualifiedTypeExpression, field: String, pos: Position): QualifiedTypeExpression = {
+    match (type) {
+      _ when type is QualifiedNamedTypeExp => {
+        val concreteType = this.dict.types.get(type.name);
+
+        match (concreteType) {
+          null => {
+            pos.fail("No such type ${type} is known")
+          }
+          _ when concreteType is AtomType => {
+            // TODO: when implementations can support fields this will change
+            pos.fail("Value is an atom, atoms do not have fields")
+          }
+          _ when concreteType is DataType => {
+            val fieldType = concreteType.fields.get(field);
+
+            if (fieldType == null) {
+              pos.fail("No such field ${field} on type ${type}");
+            } else {
+              return fieldType;
+            }
+          }
+          _ when concreteType is ProtocolType => {
+            // TODO: implement protocol fields
+            pos.fail("No such field ${field} on type ${type}");
+          }
+          _ when concreteType is EnumType => {
+            // TODO: might need better error handling here
+            return concreteType.values.fold(nothingType, { sum, next =>
+              return this.merge(sum, lookupField(next, field, pos));
+            });
+          }
+        }
+      }
+      _ when type is QualifiedGenericParamTypeExp => {
+        val actual = this.getType(type.name);
+
+        if (actual == null) {
+          pos.fail("Unknown generic parameter ${type}")
+        }
+
+        return this.lookupField(actual, field, pos);
+      }
+      _ when type is QualifiedGenericTypeExp => {
+        val base = this.dict.types.get(type.base);
+
+        match (base) {
+          null => pos.fail("Unknown type ${type.base}")
+          _ when base is AtomType => pos.fail("Value is an atom, atoms do not have fields")
+          _ when base is ProtocolType => pos.fail("No such field ${field} on type ${type}")
+          _ when base is EnumType => pos.fail("Enum's can't take generic parameters")
+          _ when base is DataType => {
+            if (type.params.size() != base.generics.size()) {
+              pos.fail("Wrong number of generic parameters, expected ${base.generics.size()}, found ${type.params.size()}");
+            }
+
+            val selfWithTypes = base.generics.zip(type.params).fold(this, { sum, nextPair =>
+              val (name, type) = nextPair;
+
+              return sum.setType(name, type);
+            });
+
+            return selfWithTypes.lookupField(type.base, field, pos);
+          }
+        }
+      }
+      _ when type is QualifiedFunctionTypeExp => pos.fail("Function type ${type} does not have fields")
+      _ when type is QualifiedTupleTypeExp => pos.fail("Attempt to access field of tuple")
+    }
+  }
+
+  // look up a method on a type. If that method is not found an exception will be thrown
+  fun lookupMethod(this, type: QualifiedTypeExpression, method: String, pos: Position): QualifiedFunctionTypeExp = {
+    match (type) {
+      _ when type is QualifiedNamedTypeExp => {
+        val fullName = type.name.child(method);
+        val funcType = this.dict.values.get(fullName);
+
+        if (funcType == null) {
+          pos.fail("No such method with name ${method} found on type ${type}")
+        }
+
+        if (funcType is QualifiedFunctionTypeExp) {
+          return funcType;
+        } else {
+          pos.fail("${fullName} is not a function");
+        }
+      }
+      _ when type is QualifiedGenericParamTypeExp => {
+        val actual = this.getType(type.name);
+
+        if (actual == null) {
+          pos.fail("Unknown generic parameter ${type}")
+        }
+
+        return this.lookupMethod(actual, method, pos);
+      }
+      _ when type is QualifiedGenericTypeExp => {
+        val fullName = type.name.child(method);
+        val funcType = this.dict.values.get(fullName);
+
+        if (funcType == null) {
+          pos.fail("No such method with name ${method} found on type ${type}")
+        }
+
+        if (funcType is QualifiedFunctionTypeExp) {
+          return funcType;
+        } else {
+          pos.fail("${fullName} is not a function");
+        }
+      }
+      _ when type is QualifiedFunctionTypeExp => pos.fail("Function type ${type} does not have fields")
+      _ when type is QualifiedTupleTypeExp => pos.fail("Attempt to access field of tuple")
+    }
+  }
+}
+
+data AssertingExpression {
+  ex: QualifiedExpression,
+  type: QualifiedTypeExpression,
+  trueScope: TypeScope,
+  falseScope: TypeScope
+}
+
+fun core(name: String): QualifiedNamedTypeExp = {
+  QualifiedNamedTypeExp {
+    name: QualifiedSymbol { org: 'core', module: 'core', path: List.of(name) }
+  }
+}
+
+private val typeAny: QualifiedNamedTypeExp = core('Any')
+private val typeBoolean: QualifiedNamedTypeExp = core('Boolean')
+private val typeInt: QualifiedNamedTypeExp = core('Int')
+private val typeString: QualifiedNamedTypeExp = core('String')
+private val typeChar: QualifiedNamedTypeExp = core('Char')
+private val typeNothing: QualifiedNamedTypeExp = core('Nothing')
+
+fun checkModule(module: QualifiedModule): QualifiedModule = {
+  val checked = module.files.values().fold(Map.of(), { sum, next =>
+    sum.set(next.path, checkFile(next))
+  });
+
+  return QualifiedModule { files: checked };
+}
+
+private fun checkFile(file: QualifiedFile, dict: Dictionary): QualifiedFile = {
+  // first step is to prepare the local TypeScope with the dict, the populate it with all local imports and declarations
+
+  fun qualify(name: String, meta: Boolean): QualifiedNamedTypeExp = {
+    val basePath = file.path.add(name);
+
+    val path = if (meta) basePath.add('[meta]') else basePath;
+
+    QualifiedNamedTypeExp { name: QualifiedSymbol { org: 'this', module: 'this', path } }
+  }
+
+  val scope = file.declarations.fold(TypeScope.new(dict), { scope, dec =>
+    match (dec) {
+      _ when dec is QualifiedFunctionDeclare => scope.setValue(dec.func.name, dec.func.type())
+      _ when dec is QualifiedAtomDeclare => {
+        scope.setValue(dec.name, qualify(dec.name, false))
+          .setType(dec.name, qualify(dec.name, false))
+      }
+      _ when dec is QualifiedDataDeclare => {
+        scope.setValue(dec.name, qualify(dec.name, true))
+          .setType(dec.name, qualify(dec.name, true))
+          .setType(dec.name, qualify(dec.name, false))
+      }
+      _ when dec is QualifiedEnumDeclare => {
+        scope.setValue(dec.name, qualify(dec.name, true))
+          .setType(dec.name, qualify(dec.name, true))
+          .setType(dec.name, qualify(dec.name, false))
+      }
+      _ when dec is QualifiedConstantDeclare => {
+        scope.setValue(dec.name, dec.assign.declaredType)
+      }
+      _ when dec is QualifiedImportDeclare => scope.doImport(dec)
+      _ when dec is QualifiedProtocolDeclare => dec.pos.fail("Protocol declarations are not supported yet")
+      _ when dec is QualifiedImplDeclare => {
+        if (dec.proto == null) {
+          val baseName = qualify(dec.base, false);
+          val metaName = qualify(dec.base, true);
+
+          dec.funcs.fold(scope, { sum, dec =>
+            val { name: rawName, generics, body } = dec.func;
+            val { args, argTypes: rawParams, resultType: result } = body;
+
+            val params = rawParams.map({ param => defineThis(param, baseName) })
+
+            // TODO: order of operations of a bang operator is not good
+            val name = if ({ !args.isEmpty() } && args.head() == "this") {
+              // and instance method
+              baseName.child(rawName)
+            } else {
+              // a static method
+              metaName.child(rawName)
+            };
+
+            sum.setValue(name, QualifiedFunctionTypeExp { params, result, generics })
+          })
+        } else {
+          dec.pos.fail("Protocol implementations are not supported yet")
+        }
+      }
+    }
+  });
+
+  val checked = file.declarations.map({ dec =>
+    match (dec) {
+      _ when dec is QualifiedFunctionDeclare => {
+        val (_, func) = checkFunctionStatement(dec.func, scope);
+
+        return dec { func };
+      }
+      _ when dec is QualifiedConstantDeclare => {
+        val (_, assign) = checkAssignmentStatement(dec.assign, scope);
+
+        return dec { assign };
+      }
+      _ when dec is QualifiedImplDeclare => {
+        val thisScope = scope.setType('This', scope.getType(dec.base));
+
+        return dec {
+          funcs: dec.funcs.map({ implFunc =>
+            val (_, func) = checkFunctionStatement(implFunc.func, thisScope);
+
+            return implFunc { func };
+          })
+        }
+      }
+      _ => dec // do nothing
+    }
+  });
+
+  return file { declarations: checked };
+}
+
+private fun checkFunctionStatement(func: QualifiedFunctionStatement, scope: TypeScope): (TypeScope, QualifiedFunctionStatement) = {
+  // introduce new generic type parameters
+  val childScope = func.generics.fold(scope, { scope, gen =>
+    scope.setType(gen.name, gen.bound)
+  });
+
+  val body = checkLambdaExpression(func.body, childScope, null);
+  val result = func { body };
+
+  val type = QualifiedFunctionTypeExp { params: result.argTypes, result: result.resultType };
+
+  return (scope.setValue(func.name, type), result);
+}
+
+private fun checkAssignmentStatement(state: QualifiedAssignmentStatement, scope: TypeScope): (TypeScope, QualifiedAssignmentStatement) = {
+  val (body, declaredType) = checkExpression(state.body, scope, state.declaredType);
+
+  // now add this statement to scope
+  val assignedScope = scope.setValue(state.name, declaredType);
+
+  return (assignedScope, state { body, declaredType });
+}
+
+private fun checkExpression(ex: QualifiedExpression, scope: TypeScope, expected: QualifiedTypeExpression): (QualifiedExpression, QualifiedTypeExpression, TypeScope) = {
+  match (ex) {
+    _ when ex is QualifiedNullLiteralExp => (ex, if (expected == null) typeAny else expected, scope)
+    _ when ex is QualifiedBooleanLiteralExp => {
+      val (actualScope, actualType) = scope.resolve(typeBoolean, expected, ex.pos)
+
+      return (ex, actualType, actualScope);
+    }
+    _ when ex is QualifiedNumberLiteralExp => {
+      val (actualScope, actualType) = scope.resolve(typeInt, expected, ex.pos)
+
+      return (ex, actualType, actualScope);
+    }
+    _ when ex is QualifiedStringLiteralExp => {
+      val (actualScope, actualType) = scope.resolve(typeString, expected, ex.pos)
+
+      return (ex, actualType, actualScope);
+    }
+    _ when ex is QualifiedCharLiteralExp => {
+      val (actualScope, actualType) = scope.resolve(typeChar, expected, ex.pos)
+
+      return (ex, actualType, actualScope);
+    }
+    _ when ex is QualifiedIdentifierExp => {
+      val actual = scope.getValue(ex.name)
+
+      if (actual == null) {
+        ex.pos.fail("No such value ${ex.name} found in scope");
+      }
+
+      val (actualScope, actualType) = scope.resolve(actual, expected, ex.pos)
+
+      return (ex, actualType, actualScope);
+    }
+    _ when ex is QualifiedBinaryOpExp => {
+      match (ex.op) {
+        '+' => numericBinaryOp(ex, scope)
+        '-' => numericBinaryOp(ex, scope)
+        '*' => numericBinaryOp(ex, scope)
+        '/' => numericBinaryOp(ex, scope)
+
+        '>'  => numericBinaryOp(ex, scope)
+        '>=' => numericBinaryOp(ex, scope)
+        '<'  => numericBinaryOp(ex, scope)
+        '<=' => numericBinaryOp(ex, scope)
+
+        '==' => equalityBinaryOp(ex, scope)
+        '!=' => equalityBinaryOp(ex, scope)
+        'is' => {
+          if (expected != null && expected != typeBoolean) {
+            ex.pos.fail("Expected type ${expected} but found ${typeBoolean}")
+          }
+
+          val { ex: resultEx, falseScope } = isBinaryOp(ex, scope);
+
+          return (resultEx, typeBoolean, falseScope);
+        }
+        'isNot' => {
+          if (expected != null && expected != typeBoolean) {
+            ex.pos.fail("Expected type ${expected} but found ${typeBoolean}")
+          }
+
+          // type-wise this is identical to `is` since we aren't using the conditional at this point
+          val { ex: resultEx, falseScope } = isBinaryOp(ex, scope);
+
+          return (resultEx, typeBoolean, falseScope);
+        }
+        '&&' => {
+          if (expected != null && expected != typeBoolean) {
+            ex.pos.fail("Expected type ${expected} but found ${typeBoolean}")
+          }
+
+          val { ex: resultEx, falseScope } = andBinaryOp(ex, scope);
+
+          // like `is` and `isNot`, we are NOT using scope assertions at this point
+          return (resultEx, typeBoolean, falseScope);
+        }
+        '||' => {
+          // TODO: If we add narrowing enum assertions, they could be useful here (ie: (v is Z || v is Y))
+          // could narrow v to one of those two types, and it could remove those types from the false condition
+          if (expected != null && expected != typeBoolean) {
+            ex.pos.fail("Expected type ${expected} but found ${typeBoolean}")
+          }
+
+          // no type assertions for now, just act like a normal expression
+          val (left, leftType, leftScope) = checkExpression(ex.left, scope, typeBoolean);
+          val (right, rightType, rightScope) = checkExpression(ex.right, leftScope, typeBoolean);
+
+          return ( ex: { left, right }, typeBoolean, rightScope);
+        }
+      }
+    }
+    _ when ex is QualifiedUnaryOpExp && ex.op == '!' => {
+      if (expected != null && expected != typeBoolean) {
+        ex.pos.fail("Expected type ${expected} but found ${typeBoolean}")
+      }
+
+      val (base, _, resultScope) = checkExpression(ex.ex, scope, typeBoolean);
+
+      return (ex { ex: base }, typeBoolean, resultScope);
+    }
+    _ when ex is QualifiedUnaryOpExp && ex.op == '-' => {
+      // TODO: other number types - likely via a Protocol and function call
+      if (expected != null && expected != typeInt) {
+        ex.pos.fail("Expected type ${expected} but found ${typeInt}")
+      }
+
+      val (base, _, resultScope) = checkExpression(ex.ex, scope, typeInt);
+
+      return (ex { ex: base }, typeInt, resultScope);
+    }
+    _ when ex is QualifiedIfExp => {
+      val { ex: condition, trueScope, falseScope } = assertingExpression(ex.condition, scope, typeBoolean);
+
+      val (thenExp, thenType, thenScope) = checkExpression(ex.thenExp, trueScope, expected);
+
+      if (ex.elseExp != null) {
+        val (elseExp, elseType, elseScope) = checkExpression(ex.elseExp, falseScope, expected);
+
+        val result = ex { condition, thenExp, elseExp };
+
+        if (thenType == typeNothing) {
+          if (elseType == typeNothing) {
+            return (result, typeNothing, scope);
+          } else {
+            return (result, elseType, elseScope);
+          }
+        } else {
+          if (elseType == typeNothing) {
+            return (result, thenType, thenScope);
+          } else {
+            return (result, elseScope.merge(thenType, elseType), scope);
+          }
+        }
+      } else {
+        // we must be inside a statement because expression `if`s aren't allowed to be missing an else.
+        val result = ex { condition, thenExp };
+
+        if (thenType == typeNothing) {
+          return (result, thenType, thenScope);
+        } else {
+          return (result, thenType, scope);
+        }
+      }
+    }
+    _ when ex is QualifiedBlockExp => {
+      val (finalScope, body) = ex.body.fold( (scope, List.of(), nothingType), { sum, state =>
+        val (scope, prev, _) = sum;
+
+        val (next, type, scope) = match (state) {
+          _ when state is QualifiedExpressionStatement => {
+            val (ex, type, scope) = checkExpression(state.ex, scope, null);
+
+            (state { ex }, type, scope);
+          }
+          _ when state is QualifiedAssignmentStatement => {
+            val body = (ex, actualType, scope) = checkExpression(state.ex, scope, state.declaredType);
+
+            ( state { ex }, nothingType, scope.setValue(state.name, actualType));
+          }
+          _ when state is QualifiedFunctionStatement => {
+            val (scope, state) = checkFunctionStatement(state, scope);
+
+            ( state, nothingType, scope.setValue(state.name, state.type()) )
+          }
+          _ when state is QualifiedDeconstructDataStatement => {
+            val (base, baseType, baseScope) = checkExpression(state.base, scope, null);
+            val result = state { base };
+
+            val resultScope = state.values.fold(baseScope, { sum, next =>
+              val (inner, outer) = next;
+
+              val type = sum.lookupField(baseType, inner, state.pos);
+
+              return sum.setType(outer, type);
+            });
+
+            ( result, nothingType, resultScope )
+          }
+          _ when state is QualifiedDeconstructTupleStatement => {
+            val (base, baseType, baseScope) = checkExpression(state.base, scope, null);
+            val result = state { base };
+
+            if (baseType isNot QualifiedTupleTypeExp) {
+              state.pos.fail("Expected tuple type but found ${baseType}");
+            }
+
+            if (baseType.params.size() < state.names.size()) {
+              state.pos.fail("Expected tuple of at least ${state.names.size()} but found tuple of only ${baseType.params.size()}");
+            }
+
+            val resultScope = state.names.zip(baseType.params).fold(baseScope, { sum, next =>
+              val (name, type) = next;
+
+              return sum.setType(name, type);
+            });
+
+            ( result, nothingType, resultScope )
+          }
+          _ when state is QualifiedDebuggerStatement => (state, nothingType, scope)
+        }
+
+        return (scope, prev.add(next), type);
+      });
+    }
+    _ when ex is QualifiedFieldAccessExp => {
+      val (base, baseType, baseScope) = checkExpression(ex.base, scope, null);
+      val fieldType = baseScope.lookupField(baseType, ex.name, ex.pos);
+
+      return (baseScope, fieldType, ex { base })
+    }
+    _ when ex is QualifiedCallExp => {
+      val (func, funcType, funcScope) = checkExpression(ex.func, scope, null);
+
+      if (func isNot QualifiedFunctionTypeExp) {
+        ex.pos.fail("Cannot call non-function");
+      }
+
+      // TODO: support for varargs, default values, optional arguments and more
+      if (ex.arguments.size() != func.params.size()) {
+        ex.pos.fail("Function expects ${func.params.size()}, found ${ex.arguments.size()}")
+      }
+
+      if (ex.typeArguments.size() > func.generics.size()) {
+        ex.pos.fail("Call provides ${ex.typeArguments.size()} type arguments but function expected only ${func.generics.size()}")
+      }
+
+      // always do this before trying to resolve the arguments
+      val scopeWithExplicitGenerics = func.generics.zip(ex.typeArguments).fold(funcScope, { scope, pair =>
+        val (name, type) = pair;
+
+        scope.setType(name, type)
+      });
+
+      // now try to resolve each argument, from left to right
+      // TODO: order really shouldn't matter here, there must be better ways to do this with a type graph
+
+      val (argumentScope, arguments) = func.params.zip(ex.arguments).fold( (scopeWithExplicitGenerics, List.of()), { sum, pair =>
+        val (scope, list) = sum;
+        val (param, arg) = pair;
+
+        val (finalEx, _, finalScope) = checkExpression(arg, scope, param);
+
+        return (finalScope, list.add(finalEx));
+      });
+
+      val resultType = argumentScope.resolve(func.result, expected, ex.pos);
+
+      return (ex { func, arguments }, resultType, funcScope);
+    }
+    _ when ex is QualifiedMethodCallExp => {
+      // much of this is identical to a normal QualifiedCallExp
+      val (base, baseType, baseScope) = checkExpression(ex.base, scope, null);
+
+      val methodType = baseScope.lookupMethod(baseType, ex.name, ex.pos);
+
+      // TODO: support for varargs, default values, optional arguments and more
+      if (ex.arguments.size() != func.params.size()) {
+        ex.pos.fail("Function expects ${func.params.size()}, found ${ex.arguments.size()}")
+      }
+
+      if (ex.typeArguments.size() > func.generics.size()) {
+        ex.pos.fail("Call provides ${ex.typeArguments.size()} type arguments but function expected only ${func.generics.size()}")
+      }
+
+      // always do this before trying to resolve the arguments
+      val scopeWithExplicitGenerics = func.generics.zip(ex.typeArguments).fold(funcScope, { scope, pair =>
+        val (name, type) = pair;
+
+        scope.setType(name, type)
+      });
+
+      // now try to resolve each argument, from left to right
+      // TODO: order really shouldn't matter here, there must be better ways to do this with a type graph
+
+      val (argumentScope, arguments) = func.params.zip(ex.arguments).fold( (scopeWithExplicitGenerics, List.of()), { sum, pair =>
+        val (scope, list) = sum;
+        val (param, arg) = pair;
+
+        val (finalEx, _, finalScope) = checkExpression(arg, scope, param);
+
+        return (finalScope, list.add(finalEx));
+      });
+
+      val resultType = argumentScope.resolve(func.result, expected, ex.pos);
+
+      return (ex { base, arguments }, resultType, funcScope);
+    }
+    _ when ex is QualifiedLambdaExp => {
+      val checked = checkLambdaExpression(ex, scope, expected);
+
+      return (checked, checked.type(), scope);
+    }
+    _ when ex is QualifiedReturnExp => {
+
+    }
+  }
+}
+
+private fun numericBinaryOp(ex: QualifiedBinaryOpExp, scope: TypeScope): (QualifiedBinaryOpExp, QualifiedTypeExpression, TypeScope) = {
+  val (leftEx, _, leftScope) = checkExpression(ex.left, scope, typeInt);
+  val (rightEx, _, rightScope) = checkExpression(ex.right, leftScope, typeInt);
+
+  return (ex { left: leftEx, right: rightEx }, typeInt, rightScope);
+}
+
+private fun equalityBinaryOp(ex: QualifiedBinaryOpExp, scope: TypeScope): (QualifiedBinaryOpExp, QualifiedTypeExpression, TypeScope) = {
+  val (leftEx, _, leftScope) = checkExpression(ex.left, scope, null);
+  val (rightEx, _, rightScope) = checkExpression(ex.right, leftScope, null);
+
+  return (ex { left: leftEx, right: rightEx }, typeBoolean, rightScope);
+}
+
+// handle expressions that might assert types (&&, !, is, isNot, if)
+private fun assertingExpression(ex: QualifiedExpression, scope: TypeScope, expected: QualifiedTypeExpression): AssertingExpression = {
+  match (ex) {
+    _ when ex is QualifiedBinaryOpExp && ex.op == 'is' => isBinaryOp(ex, scope)
+    _ when ex is QualifiedBinaryOpExp && ex.op == 'isNot' => {
+      val assert = isBinaryOp(ex, scope);
+
+      // just take the result of `is` and reverse it's assertions
+      return assert { trueScope: assert.falseScope, falseScope: assert.trueScope };
+    }
+    _ when ex is QualifiedBinaryOpExp && ex.op == '&&' => andBinaryOp(ex, scope)
+    _ when ex is QualifiedUnaryOpExp && ex.op == '!' => {
+      val assert = assertingExpression(ex.ex, scope, typeBoolean);
+
+      return assert { ex: ex { assert.ex }, trueScope: assert.falseScope, falseScope: assert.trueScope };
+    }
+    _ => {
+      // must be an ordinary expression that makes no assertions
+      val (ex, type, trueScope) = checkExpression(ex, scope, expected);
+      return AssertingExpression { ex, type, trueScope, falseScope: trueScope };
+    }
+  }
+}
+
+// handles `is` operator. Works for `isNot` also, you just have to swap the true and false scopes
+private fun isBinaryOp(ex: QualifiedBinaryOpExp, scope: TypeScope): AssertingExpression = {
+  val (leftEx, leftType, leftScope) = checkExpression(ex.left, scope, null);
+  val (rightEx, rightType, rightScope) = checkExpression(ex.right, leftScope, null);
+
+  if (rightType is QualifiedNamedTypeExp && scope.dict.values.get(rightType.name.child('[is]')) != null) {
+    // the right side is a named type and it has an '[is]' method.
+    val resultEx = ex { left: leftEx, right: rightEx };
+
+    // if left is a variable, we can assert that if this condition is true, then that var must be of the right type
+    val trueScope = if (leftEx is QualifiedIdentifierExp) {
+      return rightScope.setValue(leftEx.name, rightType);
+    } else {
+      // otherwise we make no judgements
+      // TODO: If we implement enum exclusions, that will be here
+      // enum exclusions mean that the type is known to NOT be the right type, which narrows down options for the
+      // rest of the flow
+      return rightScope;
+    }
+
+    return AssertingExpression { ex, type: typeBoolean, trueScope, falseScope: rightScope };
+  } else {
+    ex.right.pos.fail("Expected type name on right side of '${ex.op}' operator");
+  }
+}
+
+private fun andBinaryOp(ex: QualifiedBinaryOpExp, scope: TypeScope): AssertingExpression = {
+  val { ex: left, trueScope: leftScope, falseScope } = assertingExpression(ex.left, scope, typeBoolean);
+  val { ex: right, trueScope } = assertingExpression(ex.right, leftScope, typeBoolean);
+
+  return AssertingExpression { ex: ex { left, right }, type: typeBoolean, trueScope, falseScope };
+}
+
+
+private fun checkLambdaExpression(func: QualifiedLambdaExp, scope: TypeScope, expectedType: QualifiedFunctionTypeExp): QualifiedLambdaExp = {
+  // there are only three possibilities here:
+  // 1. This is a function, declared with function syntax.
+  //      In that case all types would be explicitly named and the expectedType would be null
+  //      This function *may* introduce generic parameters.
+  // 2. This is a lambda that explicitly defines all of it's types
+  //      (or more likely, all it's input types as output type is easy to determine)
+  //      and so may, or may not have an expected type
+  // 3. This is a lambda that infers one or more argument types based on it's expected type
+  //      Meaning the expected type is required to resolve the difference
+  //
+  // A lambda cannot introduce generic parameters, but it can provide the expectedType with the values for it's
+  //   generic parameters.
+  // If this is a function with generic parameters, they have already been initialized in scope
+
+  // The first step is to compare the expectedType (if there is one) to the actual values provided.
+  // The goals of this step include:
+  // 1. To make sure that the actual types as declared fit into the expected type
+  //      (for now that's an exact match, but later it'll mean considering protocols, enums etc)
+  // 2. If there are gaps in the actual type, filling them based on what's expected.
+  // 3. Resolving any generic types in either actual OR expected
+  //      That 'OR' is important. A lambda can't provide new generic params, a function can't have an expectedType
+  //      So that means that only one side could possibly have generic params at a time.
+  // We evaluate parameters first, only then to do we attempt to resolve the result type and even then we might
+  //      have either none or an unresolved generic and we'll have to resolve the whole body before we have an answer.
+
+  // step 1 - ensure that if there is an expected type, that we're fully resolved to meet it
+  val (resolvedScope, argTypes, expectedResult) = if (expectedType != null) {
+    if (func.argTypes.size() != expectedType.params.size()) {
+      // TODO: Eventually we'll have default and optional parameters and on that day we'll have to do something here.
+      // Also, we'll have to find a way to figure out varargs at some point
+      // Until then, all functions must provide all expected arguments
+
+      func.pos.fail("Lambda expected ${expectedType.params.size()} arguments but only found ${func.argTypes.size()}");
+    }
+
+    val (resolvedArgumentScope, params) = func.argTypes.zip(expectedType.params).fold((scope, List.of()), { sumPair, raw =>
+      val (scope, working) = sumPair;
+      val (actual, expectedType) = raw;
+
+      // at this point, expectedType cannot be null, but actual can be
+      val (resolvedScope, next) = if (actualType == null) {
+        (scope, expectedType)
+      } else {
+        // compare the two types and make sure they are compatible
+        scope.resolve(actual, expected, func.pos)
+      };
+
+      return (resolvedScope, working.add(next));
+    });
+
+    // now to resolve the result type if we can
+    val (finalScope, result) = if (func.result == null) {
+      (resolvedArgumentScope, null)
+    } else {
+      resolvedArgumentScope.resolve(func.result, expected.result, func.pos);
+    };
+
+    (finalScope, params, result)
+  } else {
+    // must be a named function, just take it at it's word
+    (scope, func.params, func.result)
+  };
+
+  // step 2 - now we can actually look at the body have it resolved with all known information
+  val (body, resultType) = checkExpression(func.body, resolvedScope, expectedResult);
+
+  // fill in all the actual values we collected
+  return func { argTypes, resultType, body }
+}
+
